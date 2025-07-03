@@ -39,6 +39,10 @@ async function fetchIPData() {
   const result = await response.json();
   document.getElementById('summary').textContent = result.summary;
   document.getElementById('tableBody').innerHTML = result.table;
+  window._latestTable = result.raw_table;
+window._latestSummary = result.summary;
+document.getElementById('downloadExcelBtn').classList.remove('hidden');
+
 
   document.getElementById('spinner').classList.add('hidden');
   document.getElementById('summarySection').classList.remove('hidden');
@@ -79,4 +83,24 @@ function copyTableToClipboard(btnId) {
     setTimeout(() => btn.innerHTML = original, 1500);
   });
 }
+function downloadExcel() {
+  fetch('/download_excel', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+  table_data: window._latestTable || [],
+  summary: window._latestSummary || ''
+})
 
+  })
+  .then(resp => resp.blob())
+  .then(blob => {
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'IP_Info.xlsx';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  });
+}

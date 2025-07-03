@@ -25,47 +25,47 @@
     </div>
 
     <div id="summarySection" class="mt-10 hidden border border-gray-600 rounded-xl p-6 bg-[#1e1e1e]">
-  <div class="section-title bg-black text-white border-2 border-green-400 px-4 py-1 inline-block rounded-full mb-4 text-xl font-semibold text-center">
-    Summary
-  </div>
-
-  <div id="summary" class="whitespace-pre-wrap p-4 rounded-xl border border-gray-700 text-left text-lg leading-relaxed text-white font-mono max-h-96 overflow-y-auto custom-scroll"></div>
-
-  <div class="flex justify-start mt-4">
-    <button id="copySummaryBtn"
-            onclick="copyToClipboard('summary', 'copySummaryBtn')"
-            class="neon-button flex items-center gap-2 text-sm px-4 py-2">
-      <i class="ph ph-copy"></i>
-      Copy Summary
-    </button>
-  </div>
-</div>
+      <div class="section-title bg-black text-white border-2 border-green-400 px-4 py-1 inline-block rounded-full mb-4 text-xl font-semibold text-center">
+        Summary
+      </div>
+      <div id="summary" class="whitespace-pre-wrap p-4 rounded-xl border border-gray-700 text-left text-lg leading-relaxed text-white font-mono max-h-96 overflow-y-auto custom-scroll"></div>
+      <div class="flex justify-start mt-4 gap-4">
+        <button id="copySummaryBtn"
+                onclick="copyToClipboard('summary', 'copySummaryBtn')"
+                class="neon-button flex items-center gap-2 text-sm px-4 py-2">
+          <i class="ph ph-copy"></i>
+          Copy Summary
+        </button>
+      </div>
+    </div>
 
     <div id="tableSection" class="mt-10 hidden border border-gray-600 rounded-xl p-6 bg-[#1e1e1e]">
       <div class="section-title">Table</div>
-  <div class="overflow-x-auto custom-scroll">
-  <div class="max-h-96 overflow-y-auto custom-scroll">
-    <table class="min-w-full table-auto border border-collapse text-white text-sm">
-      <thead class="sticky top-0 bg-[#2a2a2a] z-20">
-        <tr>
-          <th class="border px-3 py-2 text-center">IP</th>
-          <th class="border px-3 py-2 text-center">ISP</th>
-          <th class="border px-3 py-2 text-center">Country</th>
-          <th class="border px-3 py-2 text-center">Detection Count</th>
-        </tr>
-      </thead>
-      <tbody id="tableBody"></tbody>
-    </table>
-  </div>
-</div>
-
-
-      <div class="flex justify-start">
-        <button id="copyTableBtn" onclick="copyTableToClipboard('copyTableBtn')" class="neon-button mt-4 flex items-center gap-2 text-sm">
-          <i class="ph ph-copy"></i>
-          Copy Table
-        </button>
+      <div class="overflow-x-auto custom-scroll">
+        <div class="max-h-96 overflow-y-auto custom-scroll">
+          <table class="min-w-full table-auto border border-collapse text-white text-sm">
+            <thead class="sticky top-0 bg-[#2a2a2a] z-20">
+              <tr>
+                <th class="border px-3 py-2 text-center">IP</th>
+                <th class="border px-3 py-2 text-center">ISP</th>
+                <th class="border px-3 py-2 text-center">Country</th>
+                <th class="border px-3 py-2 text-center">Detection Count</th>
+              </tr>
+            </thead>
+            <tbody id="tableBody"></tbody>
+          </table>
+        </div>
       </div>
+      <div class="flex justify-start mt-4 gap-10"> <!-- Added gap-4 here -->
+  <button id="copyTableBtn" onclick="copyTableToClipboard('copyTableBtn')" class="neon-button flex items-center gap-2 text-sm">
+    <i class="ph ph-copy"></i>
+    Copy Table
+  </button>
+  <button id="downloadExcelBtn" onclick="downloadExcel()" class="neon-button flex items-center gap-4 text-sm px-4 py-2 hidden">
+    <i class="ph ph-download-simple"></i>
+    Download Excel
+  </button>
+</div>
     </div>
   </div>
   <script src="{{ url_for('static', filename='script.js') }}"></script>
