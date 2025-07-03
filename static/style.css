@@ -152,3 +152,35 @@ table::-webkit-scrollbar-thumb {
   line-height: 1.6;
   color: #ffffff;
 }
+.downloaded {
+  background-color: #00c853 !important; /* green background */
+  color: white;
+  border-color: #00c853;
+  transition: all 0.4s ease;
+}
+
+.downloaded::after {
+  content: '         ✓';
+  display: inline-block;
+  animation: riseUp 0.5s ease-in-out forwards;
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+@keyframes riseUp {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+
+#resetBtn {
+  background-color: #ff1744;
+  border-color: #ff1744;
+}
+
+#resetBtn:hover {
+  background-color: #f01440;
+  border-color: #f01440;
+}
