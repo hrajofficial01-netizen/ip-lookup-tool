@@ -18,8 +18,8 @@ VT_API_KEYS = [k.strip() for k in os.getenv("VT_API_KEYS", "").split(",") if k.s
 ABUSEIPDB_API_KEY = os.getenv("ABUSEIPDB_API_KEY", "")
 MAX_IPS = 50
 exhausted_vt_keys = set()
-vt_keys_lock = threading.Lock()  # Lock to protect exhausted_vt_keys set
-MAX_WORKERS = 10  # Number of threads to run concurrently
+vt_keys_lock = threading.Lock()
+MAX_WORKERS = 10
 
 @app.route('/')
 def index():
@@ -67,11 +67,12 @@ def get_ip_info():
 
 def process_single_ip(ip):
     isp, country, detections = "N/A", "N/A", 0
+    vt_success = False
 
     for key in VT_API_KEYS:
         with vt_keys_lock:
             if key in exhausted_vt_keys:
-                continue  # Skip exhausted keys
+                continue
 
         vt_resp = query_virustotal(ip, key)
 
@@ -87,41 +88,43 @@ def process_single_ip(ip):
                 country = get_country_name(country_code)
             detections = max(detections, vt_resp.get("last_analysis_stats", {}).get("malicious", 0))
             print(f"[VT] Data for {ip} found with key {key}")
+            vt_success = True
             break
 
-    if isp == "N/A" or country == "N/A":
-        abuse_data = query_abuseipdb(ip)
-        if abuse_data:
-            if isp == "N/A":
-                isp = abuse_data.get("isp", isp)
-            if country == "N/A":
-                country_code = abuse_data.get("countryCode", None)
-                if country_code:
-                    country = get_country_name(country_code)
-            detections = max(detections, abuse_data.get("abuseConfidenceScore", 0))
-            print(f"[ABUSEIPDB] Data for {ip} found")
+    if not vt_success:
+        if isp == "N/A" or country == "N/A":
+            abuse_data = query_abuseipdb(ip)
+            if abuse_data:
+                if isp == "N/A":
+                    isp = abuse_data.get("isp", isp)
+                if country == "N/A":
+                    country_code = abuse_data.get("countryCode", None)
+                    if country_code:
+                        country = get_country_name(country_code)
+                detections = max(detections, abuse_data.get("abuseConfidenceScore", 0))
+                print(f"[ABUSEIPDB] Data for {ip} found")
 
-    if isp == "N/A" or country == "N/A":
-        ipapi_data = query_ipapi(ip)
-        if ipapi_data:
-            if isp == "N/A":
-                isp = ipapi_data.get("org", isp)
-            if country == "N/A":
-                country_name = ipapi_data.get("country", None)
-                if country_name:
-                    country = country_name  # Full country name from IPAPI
-            print(f"[IPAPI] Data for {ip} found")
+        if isp == "N/A" or country == "N/A":
+            ipapi_data = query_ipapi(ip)
+            if ipapi_data:
+                if isp == "N/A":
+                    isp = ipapi_data.get("org", isp)
+                if country == "N/A":
+                    country_name = ipapi_data.get("country", None)
+                    if country_name:
+                        country = country_name
+                print(f"[IPAPI] Data for {ip} found")
 
-    if isp == "N/A" or country == "N/A":
-        ipwho = query_ipwhois(ip)
-        if ipwho:
-            if isp == "N/A":
-                isp = ipwho.get("isp", isp)
-            if country == "N/A":
-                country_name = ipwho.get("country", None)
-                if country_name:
-                    country = country_name  # Full country name from ipwho.is
-            print(f"[IPWHO] Data for {ip} found")
+        if isp == "N/A" or country == "N/A":
+            ipwho = query_ipwhois(ip)
+            if ipwho:
+                if isp == "N/A":
+                    isp = ipwho.get("isp", isp)
+                if country == "N/A":
+                    country_name = ipwho.get("country", None)
+                    if country_name:
+                        country = country_name
+                print(f"[IPWHO] Data for {ip} found")
 
     if isp == "N/A" and country == "N/A":
         print(f"[NO DATA] No data found for IP {ip}")
@@ -138,7 +141,7 @@ def query_virustotal(ip, api_key):
         )
         if resp.status_code == 200:
             return resp.json().get("data", {}).get("attributes", {})
-        elif resp.status_code == 429:
+        elif resp.status_code in (403, 429):
             return 'exhausted'
     except Exception as e:
         print(f"[VT] Error: {e}")
