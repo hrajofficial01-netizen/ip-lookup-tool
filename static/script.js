@@ -17,6 +17,12 @@ function isPrivateIP(ip) {
   );
 }
 
+const privateIPs = ipList.filter(ip => isPrivateIP(ip));
+if (privateIPs.length > 0) {
+  alert(`⚠️ Private IPs will be skipped:\n${privateIPs.join(", ")}`);
+}
+
+
 async function fetchIPData() {
   const inputField = document.getElementById('ipInput');
   const lookupButton = document.getElementById('lookupButton');
@@ -37,8 +43,8 @@ async function fetchIPData() {
     return;
   }
 
-  if (ipList.length > 100) {
-    alert("⚠️ Please enter no more than 100 IP addresses at a time.");
+  if (ipList.length > 50) {
+    alert("⚠️ Please enter no more than 50 IP addresses at a time.");
     return;
   }
 
