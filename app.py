@@ -1,7 +1,7 @@
+import threading
 from flask import Flask, request, jsonify, send_file, render_template
 import os
 import requests
-import time
 from dotenv import load_dotenv
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, Border, Side
@@ -9,6 +9,7 @@ from openpyxl.utils import get_column_letter
 import tempfile
 from iso3166 import countries
 import ipaddress
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 load_dotenv()
 app = Flask(__name__)
@@ -17,6 +18,8 @@ VT_API_KEYS = [k.strip() for k in os.getenv("VT_API_KEYS", "").split(",") if k.s
 ABUSEIPDB_API_KEY = os.getenv("ABUSEIPDB_API_KEY", "")
 MAX_IPS = 50
 exhausted_vt_keys = set()
+vt_keys_lock = threading.Lock()  # Lock to protect exhausted_vt_keys set
+MAX_WORKERS = 10  # Number of threads to run concurrently
 
 @app.route('/')
 def index():
@@ -26,81 +29,112 @@ def index():
 def get_ip_info():
     data = request.get_json()
     ip_list = data.get('ips', [])[:MAX_IPS]
-    
-    summary_lines, table_data, table_rows = [], [], []
 
-    for ip in ip_list:
-        if is_private_or_reserved(ip):
-            print(f"[SKIP] {ip} is a private or reserved IP")
-            continue
+    valid_ips = [ip for ip in ip_list if not is_private_or_reserved(ip)]
+    if not valid_ips:
+        return jsonify({"summary": "No valid public IPs to lookup.", "table": "", "raw_table": []})
 
-        print(f"[LOOKUP] Processing IP: {ip}")
-        isp, country, detections = "N/A", "N/A", 0
+    results = []
 
-        # Try VirusTotal
-        for key in VT_API_KEYS:
-            if key in exhausted_vt_keys:
-                continue
-            vt_resp = query_virustotal(ip, key)
-            if vt_resp == 'exhausted':
-                exhausted_vt_keys.add(key)
-                print(f"[VT] Key exhausted: {key}")
-                continue
-            elif vt_resp:
-                vt_data = vt_resp
-                isp = vt_data.get("as_owner", isp)
-                country = get_country_name(vt_data.get("country", country))
-                detections = max(detections, vt_data.get("last_analysis_stats", {}).get("malicious", 0))
-                print(f"[VT] Data for {ip} found with key {key}")
-                break
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        future_to_ip = {executor.submit(process_single_ip, ip): ip for ip in valid_ips}
+        for future in as_completed(future_to_ip):
+            ip = future_to_ip[future]
+            try:
+                result = future.result()
+                if result:
+                    results.append(result)
+            except Exception as e:
+                print(f"[ERROR] Exception processing IP {ip}: {e}")
 
-        # Try AbuseIPDB
-        abuse_data = query_abuseipdb(ip)
-        if abuse_data:
-            if not isp or isp == "N/A":
-                isp = abuse_data.get("isp", isp)
-            if not country or country == "N/A":
-                country = abuse_data.get("countryCode", country)
-            detections = max(detections, abuse_data.get("abuseConfidenceScore", 0))
-            print(f"[ABUSEIPDB] Data for {ip} found")
+    if not results:
+        return jsonify({"summary": "No IP data could be retrieved.", "table": "", "raw_table": []})
 
-        # Try IPAPI
-        if isp == "N/A" or country == "N/A":
-            ipapi_data = query_ipapi(ip)
-            if ipapi_data:
-                isp = ipapi_data.get("org", isp)
-                country = ipapi_data.get("country", country)
-                print(f"[IPAPI] Data for {ip} found")
+    summary_lines = []
+    table_rows = []
+    raw_table = []
 
-        # Try ipwho.is
-        if isp == "N/A" or country == "N/A":
-            ipwho = query_ipwhois(ip)
-            if ipwho:
-                isp = ipwho.get("isp", isp)
-                country = ipwho.get("country", country)
-                print(f"[IPWHO] Data for {ip} found")
-
-        if isp == "N/A" and country == "N/A":
-            summary_lines.append(f"The IP {ip} could not be retrieved from any source.")
-            continue
-
-        summary_lines.append(
-            f"The IP {ip} belongs to the ISP: {isp} from the country: {country} with detection count: {detections}."
-        )
-        table_data.append([ip, isp, country, str(detections)])
+    for ip, isp, country, detections in results:
+        summary_lines.append(f"The IP {ip} belongs to the ISP: {isp} from the country: {country} with detection count: {detections}.")
         table_rows.append(f"<tr><td>{ip}</td><td>{isp}</td><td>{country}</td><td>{detections}</td></tr>")
+        raw_table.append([ip, isp, country, str(detections)])
 
     return jsonify({
         "summary": "\n\n".join(summary_lines),
         "table": "".join(table_rows),
-        "raw_table": table_data
+        "raw_table": raw_table
     })
+
+def process_single_ip(ip):
+    isp, country, detections = "N/A", "N/A", 0
+
+    for key in VT_API_KEYS:
+        with vt_keys_lock:
+            if key in exhausted_vt_keys:
+                continue  # Skip exhausted keys
+
+        vt_resp = query_virustotal(ip, key)
+
+        if vt_resp == 'exhausted':
+            with vt_keys_lock:
+                exhausted_vt_keys.add(key)
+            print(f"[VT] Key exhausted: {key}")
+            continue
+        elif vt_resp:
+            isp = vt_resp.get("as_owner", isp)
+            country_code = vt_resp.get("country", None)
+            if country_code:
+                country = get_country_name(country_code)
+            detections = max(detections, vt_resp.get("last_analysis_stats", {}).get("malicious", 0))
+            print(f"[VT] Data for {ip} found with key {key}")
+            break
+
+    if isp == "N/A" or country == "N/A":
+        abuse_data = query_abuseipdb(ip)
+        if abuse_data:
+            if isp == "N/A":
+                isp = abuse_data.get("isp", isp)
+            if country == "N/A":
+                country_code = abuse_data.get("countryCode", None)
+                if country_code:
+                    country = get_country_name(country_code)
+            detections = max(detections, abuse_data.get("abuseConfidenceScore", 0))
+            print(f"[ABUSEIPDB] Data for {ip} found")
+
+    if isp == "N/A" or country == "N/A":
+        ipapi_data = query_ipapi(ip)
+        if ipapi_data:
+            if isp == "N/A":
+                isp = ipapi_data.get("org", isp)
+            if country == "N/A":
+                country_name = ipapi_data.get("country", None)
+                if country_name:
+                    country = country_name  # Full country name from IPAPI
+            print(f"[IPAPI] Data for {ip} found")
+
+    if isp == "N/A" or country == "N/A":
+        ipwho = query_ipwhois(ip)
+        if ipwho:
+            if isp == "N/A":
+                isp = ipwho.get("isp", isp)
+            if country == "N/A":
+                country_name = ipwho.get("country", None)
+                if country_name:
+                    country = country_name  # Full country name from ipwho.is
+            print(f"[IPWHO] Data for {ip} found")
+
+    if isp == "N/A" and country == "N/A":
+        print(f"[NO DATA] No data found for IP {ip}")
+        return None
+
+    return (ip, isp, country, detections)
 
 def query_virustotal(ip, api_key):
     try:
         resp = requests.get(
             f"https://www.virustotal.com/api/v3/ip_addresses/{ip}",
-            headers={"x-apikey": api_key}
+            headers={"x-apikey": api_key},
+            timeout=10
         )
         if resp.status_code == 200:
             return resp.json().get("data", {}).get("attributes", {})
