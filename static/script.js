@@ -6,55 +6,80 @@ function isValidIP(ip) {
 
 function isPrivateIP(ip) {
   const parts = ip.split('.');
-  if (parts.length !== 4) return false; // Not IPv4, skip (or add IPv6 check if needed)
+  if (parts.length !== 4) return false;
   const [a, b] = parts.map(Number);
-  if (a === 10) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  if (a === 192 && b === 168) return true;
-  if (a === 127) return true;  // loopback
-  if (a === 169 && b === 254) return true; // link-local
-  return false;
+  return (
+    a === 10 ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    a === 127 ||
+    (a === 169 && b === 254)
+  );
 }
 
 async function fetchIPData() {
-  const input = document.getElementById('ipInput').value;
-  const ipList = input.split(/[\n,\s]+/).map(ip => ip.trim()).filter(ip => ip.length > 0);
-  const validIps = ipList.filter(ip => isValidIP(ip));
-  
-  // Filter out private IPs here
-  const publicIps = validIps.filter(ip => !isPrivateIP(ip));
+  const inputField = document.getElementById('ipInput');
+  const lookupButton = document.getElementById('lookupButton');
+  const summaryDiv = document.getElementById('summary');
+  const tableBody = document.getElementById('tableBody');
+  const downloadBtn = document.getElementById('downloadExcelBtn');
+  const summarySection = document.getElementById('summarySection');
+  const tableSection = document.getElementById('tableSection');
 
-  const errorMsg = document.getElementById('errorMsg');
-  if (publicIps.length === 0) {
-    errorMsg.classList.remove('hidden');
-    errorMsg.textContent = 'No valid public IPs to lookup.';
+  const input = inputField.value;
+  const ipList = input
+    .split(/[\s,\n]+/)
+    .map(ip => ip.trim())
+    .filter(ip => ip.length > 0);
+
+  if (ipList.length === 0) {
+    alert("Please enter at least one valid IP address.");
     return;
-  } else {
-    errorMsg.classList.add('hidden');
   }
 
-  document.getElementById('spinner').classList.remove('hidden');
-  document.getElementById('summarySection').classList.add('hidden');
-  document.getElementById('tableSection').classList.add('hidden');
+  if (ipList.length > 100) {
+    alert("⚠️ Please enter no more than 100 IP addresses at a time.");
+    return;
+  }
 
-  const response = await fetch('/get_ip_info', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ips: publicIps })
-  });
+  lookupButton.disabled = true;
+  lookupButton.textContent = "Fetching...";
 
-  const result = await response.json();
-  document.getElementById('summary').textContent = result.summary;
-  document.getElementById('tableBody').innerHTML = result.table;
-  window._latestTable = result.raw_table;
-  window._latestSummary = result.summary;
-  document.getElementById('downloadExcelBtn').classList.remove('hidden');
+  try {
+    const response = await fetch("/get_ip_info", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ ips: ipList })
+    });
 
-  document.getElementById('spinner').classList.add('hidden');
-  document.getElementById('summarySection').classList.remove('hidden');
-  document.getElementById('tableSection').classList.remove('hidden');
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || "Server error occurred.");
+    }
+
+    const data = await response.json();
+
+    summaryDiv.innerText = data.summary;
+    summarySection.classList.remove("hidden");
+
+    tableBody.innerHTML = data.table;
+    tableSection.classList.remove("hidden");
+
+    window._latestSummary = data.summary;
+    window._latestTable = data.raw_table;
+
+    downloadBtn.style.display = "inline-block";
+    downloadBtn.classList.remove("hidden");
+  } catch (error) {
+    console.error("Error:", error);
+    alert("❌ Error retrieving IP info:\n" + error.message);
+  } finally {
+    lookupButton.disabled = false;
+    lookupButton.textContent = "Get Info";
+  }
 }
-
 
 function copyToClipboard(elementId, btnId) {
   const text = document.getElementById(elementId).innerText;
@@ -74,8 +99,7 @@ function copyTableToClipboard(btnId) {
   const rows = [...document.querySelectorAll('#tableBody tr')].map(row => {
     const cells = [...row.children].map((cell, i) => {
       let text = cell.innerText.trim();
-      // Wrap detection count (last column) with quotes to prevent Excel date autoformat
-      if (i === 3) text = `"${text}"`;
+      if (i === 3) text = `"${text}"`; // detection count
       return text;
     });
     return cells.join('\t');
@@ -90,6 +114,7 @@ function copyTableToClipboard(btnId) {
     setTimeout(() => btn.innerHTML = original, 1500);
   });
 }
+
 function downloadExcel() {
   fetch('/download_excel', {
     method: 'POST',
@@ -99,62 +124,48 @@ function downloadExcel() {
       summary: window._latestSummary || ''
     })
   })
-  .then(resp => resp.blob())
-  .then(blob => {
-    // Trigger download
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'IP_Info.xlsx';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    window.URL.revokeObjectURL(url);
+    .then(resp => resp.blob())
+    .then(blob => {
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'IP_Info.xlsx';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
 
-    // Update button UI
-    const btn = document.getElementById('downloadExcelBtn');
-    btn.textContent = 'Downloaded';
-    btn.classList.add('downloaded');
-    btn.disabled = true;
+      const btn = document.getElementById('downloadExcelBtn');
+      btn.textContent = 'Downloaded';
+      btn.classList.add('downloaded');
+      btn.disabled = true;
 
-    // Optional: reset button after 5 seconds
-   setTimeout(() => {
-  btn.innerHTML = '<i class="ph ph-download-simple"></i> Export to Excel';
-  btn.classList.remove('downloaded');
-  btn.disabled = false;
-}, 5000);
-
-  })
-  .catch(error => {
-    console.error('Download failed:', error);
-    alert('Download failed. Please try again.');
-  });
+      setTimeout(() => {
+        btn.innerHTML = '<i class="ph ph-download-simple"></i> Export to Excel';
+        btn.classList.remove('downloaded');
+        btn.disabled = false;
+      }, 5000);
+    })
+    .catch(error => {
+      console.error('Download failed:', error);
+      alert('Download failed. Please try again.');
+    });
 }
+
 function resetTool() {
-  // Clear the IP input
   document.getElementById('ipInput').value = '';
-
-  // Hide error message
   document.getElementById('errorMsg').classList.add('hidden');
-
-  // Hide and clear summary section
-  const summarySection = document.getElementById('summarySection');
-  summarySection.classList.add('hidden');
+  document.getElementById('summarySection').classList.add('hidden');
   document.getElementById('summary').innerHTML = '';
-
-  // Hide and clear table section
-  const tableSection = document.getElementById('tableSection');
-  tableSection.classList.add('hidden');
+  document.getElementById('tableSection').classList.add('hidden');
   document.getElementById('tableBody').innerHTML = '';
 
-  // Reset the download button
   const downloadBtn = document.getElementById('downloadExcelBtn');
   downloadBtn.classList.add('hidden');
   downloadBtn.textContent = 'Export to Excel';
   downloadBtn.classList.remove('downloaded');
   downloadBtn.disabled = false;
 
-  // Clear globally stored data
   window._latestSummary = '';
   window._latestTable = [];
 }

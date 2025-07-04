@@ -7,26 +7,18 @@ from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 import tempfile
 from iso3166 import countries
+import time
+import ipaddress
 
 load_dotenv()
-
 app = Flask(__name__)
 
-# VirusTotal multi-key support
-VT_API_KEYS = os.getenv("VT_API_KEYS", "").split(",")
-api_index = 0
-
-def get_next_api_key():
-    global api_index
-    key = VT_API_KEYS[api_index % len(VT_API_KEYS)].strip()
-    api_index += 1
-    return key
+# Load VirusTotal API keys from .env (comma-separated)
+VT_API_KEYS = [k.strip() for k in os.getenv("VT_API_KEYS", "").split(",") if k.strip()]
 
 @app.route('/')
 def index():
     return render_template('index.html')
-
-import time
 
 @app.route('/get_ip_info', methods=['POST'])
 def get_ip_info():
@@ -39,17 +31,24 @@ def get_ip_info():
 
     BATCH_SIZE = 50
     SLEEP_BETWEEN_BATCHES = 1  # seconds
-    MAX_RETRIES_PER_IP = len(VT_API_KEYS)
+    exhausted_keys = set()
 
     for batch_start in range(0, len(ip_list), BATCH_SIZE):
         batch = ip_list[batch_start:batch_start + BATCH_SIZE]
         print(f"Processing batch {batch_start // BATCH_SIZE + 1}: {len(batch)} IPs")
 
         for ip in batch:
-            url = f"https://www.virustotal.com/api/v3/ip_addresses/{ip}"
+            if is_private_ip(ip):
+                summary_lines.append(f"The IP {ip} is a private IP address and was skipped.")
+                continue
 
-            for _ in range(MAX_RETRIES_PER_IP):
-                key = get_next_api_key()
+            url = f"https://www.virustotal.com/api/v3/ip_addresses/{ip}"
+            success = False
+
+            for key in VT_API_KEYS:
+                if key in exhausted_keys:
+                    continue
+
                 headers = {"x-apikey": key}
                 response = requests.get(url, headers=headers)
 
@@ -67,20 +66,23 @@ def get_ip_info():
                         )
                         table_data.append([ip, isp, country_name, str(detections)])
                         table_rows.append(f"<tr><td>{ip}</td><td>{isp}</td><td>{country_name}</td><td>{detections}</td></tr>")
+                        success = True
                     except Exception as e:
                         summary_lines.append(f"The IP {ip} caused an error during parsing: {str(e)}")
-                    break  # success, move to next IP
+                    break  # Stop trying other keys for this IP
 
                 elif response.status_code == 429:
-                    print(f"Rate limit hit for key: {key}. Trying next key...")
-                    continue  # retry with another key
+                    print(f"Rate limit hit for key: {key}. Marking as exhausted.")
+                    exhausted_keys.add(key)
+                    continue  # Try next key
 
                 else:
                     summary_lines.append(f"The IP {ip} could not be retrieved (Error {response.status_code}).")
-                    break  # don't retry for non-429 errors
+                    break
 
-            else:
-                summary_lines.append(f"The IP {ip} could not be retrieved (All keys exhausted or failed).")
+            if not success:
+                summary_lines.append(f"The IP {ip} could not be retrieved (All working keys exhausted or failed).")
+                summary_lines.append(f"The IP {ip} could not be retrieved (Error {response.status_code}).")
 
         time.sleep(SLEEP_BETWEEN_BATCHES)
 
@@ -89,8 +91,6 @@ def get_ip_info():
         "table": "".join(table_rows),
         "raw_table": table_data
     })
-
-
 
 @app.route('/download_excel', methods=['POST'])
 def download_excel():
@@ -156,6 +156,12 @@ def get_full_country_name(code):
         return countries.get(code).name
     except:
         return code
+
+def is_private_ip(ip):
+    try:
+        return ipaddress.ip_address(ip).is_private
+    except ValueError:
+        return False
 
 if __name__ == '__main__':
     app.run(debug=True)
