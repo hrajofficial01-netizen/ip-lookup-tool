@@ -26,6 +26,8 @@ def get_next_api_key():
 def index():
     return render_template('index.html')
 
+import time
+
 @app.route('/get_ip_info', methods=['POST'])
 def get_ip_info():
     data = request.get_json()
@@ -35,35 +37,60 @@ def get_ip_info():
     table_data = []
     table_rows = []
 
-    for ip in ip_list:
-        url = f"https://www.virustotal.com/api/v3/ip_addresses/{ip}"
-        headers = { "x-apikey": get_next_api_key() }
+    BATCH_SIZE = 50
+    SLEEP_BETWEEN_BATCHES = 1  # seconds
+    MAX_RETRIES_PER_IP = len(VT_API_KEYS)
 
-        try:
-            response = requests.get(url, headers=headers)
-            if response.status_code == 200:
-                ip_data = response.json()
-                attributes = ip_data.get("data", {}).get("attributes", {})
-                isp = attributes.get("as_owner", "N/A")
-                country_code = attributes.get("country", "N/A")
-                detections = attributes.get("last_analysis_stats", {}).get("malicious", 0)
-                country_name = get_full_country_name(country_code)
+    for batch_start in range(0, len(ip_list), BATCH_SIZE):
+        batch = ip_list[batch_start:batch_start + BATCH_SIZE]
+        print(f"Processing batch {batch_start // BATCH_SIZE + 1}: {len(batch)} IPs")
 
-                summary_lines.append(
-                    f"The IP {ip} belongs to the ISP: {isp} from the country: {country_name} with detection count: {detections}."
-                )
-                table_data.append([ip, isp, country_name, str(detections)])
-                table_rows.append(f"<tr><td>{ip}</td><td>{isp}</td><td>{country_name}</td><td>{detections}</td></tr>")
+        for ip in batch:
+            url = f"https://www.virustotal.com/api/v3/ip_addresses/{ip}"
+
+            for _ in range(MAX_RETRIES_PER_IP):
+                key = get_next_api_key()
+                headers = {"x-apikey": key}
+                response = requests.get(url, headers=headers)
+
+                if response.status_code == 200:
+                    try:
+                        ip_data = response.json()
+                        attributes = ip_data.get("data", {}).get("attributes", {})
+                        isp = attributes.get("as_owner", "N/A")
+                        country_code = attributes.get("country", "N/A")
+                        detections = attributes.get("last_analysis_stats", {}).get("malicious", 0)
+                        country_name = get_full_country_name(country_code)
+
+                        summary_lines.append(
+                            f"The IP {ip} belongs to the ISP: {isp} from the country: {country_name} with detection count: {detections}."
+                        )
+                        table_data.append([ip, isp, country_name, str(detections)])
+                        table_rows.append(f"<tr><td>{ip}</td><td>{isp}</td><td>{country_name}</td><td>{detections}</td></tr>")
+                    except Exception as e:
+                        summary_lines.append(f"The IP {ip} caused an error during parsing: {str(e)}")
+                    break  # success, move to next IP
+
+                elif response.status_code == 429:
+                    print(f"Rate limit hit for key: {key}. Trying next key...")
+                    continue  # retry with another key
+
+                else:
+                    summary_lines.append(f"The IP {ip} could not be retrieved (Error {response.status_code}).")
+                    break  # don't retry for non-429 errors
+
             else:
-                summary_lines.append(f"The IP {ip} could not be retrieved (Error {response.status_code}).")
-        except Exception as e:
-            summary_lines.append(f"The IP {ip} caused an error: {str(e)}")
+                summary_lines.append(f"The IP {ip} could not be retrieved (All keys exhausted or failed).")
+
+        time.sleep(SLEEP_BETWEEN_BATCHES)
 
     return jsonify({
         "summary": "\n\n".join(summary_lines),
         "table": "".join(table_rows),
         "raw_table": table_data
     })
+
+
 
 @app.route('/download_excel', methods=['POST'])
 def download_excel():
