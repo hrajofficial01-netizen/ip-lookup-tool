@@ -84,10 +84,10 @@ async function fetchIPData() {
   // Compose messages for UI below textarea
   let messages = [];
   if (duplicateIPs.length > 0) {
-    messages.push(`⚠️ Duplicate IPs filtered out: ${duplicateIPs.join(", ")}`);
+    messages.push(`⚠️ ${duplicateIPs.length} Duplicate IPs filtered out: ${duplicateIPs.join(", ")}`);
   }
   if (privateIPs.length > 0) {
-    messages.push(`⚠️ Private/Reserved IPs filtered out: ${privateIPs.join(", ")}`);
+    messages.push(`⚠️ ${privateIPs.length} Private/Reserved IPs filtered out: ${privateIPs.join(", ")}`);
   }
 
   // If more than 100 valid public IPs, slice to 100 and warn
@@ -97,10 +97,8 @@ async function fetchIPData() {
     messages.push(
       `⚠️ You entered ${validPublicIPs.length} valid public IPs. Only the first 100 will be processed.`
     );
-    messages.push(`IPs excluded from processing: ${extraIPs.join(", ")}`);
+    messages.push(`⚠️ ${extraIPs.length} IPs excluded from processing: ${extraIPs.join(", ")}`);
   }
-
-  messageDiv.innerHTML = messages.join("<br>") || "";
 
   // Limit to first 100 valid public IPs
   const ipsToProcess = validPublicIPs.slice(0, 100);
@@ -123,6 +121,42 @@ async function fetchIPData() {
 
     const data = await response.json();
 
+    const processedCount = data.raw_table?.length || 0;
+
+    if (data.no_data_ips && data.no_data_ips.length > 0) {
+  const displayList = data.no_data_ips.slice(0, 5).join(", ");
+  const more = data.no_data_ips.length > 5 ? ` and ${data.no_data_ips.length - 5} more...` : "";
+  messages.push(`⚠️ ${data.no_data_ips.length} IPs returned no data from any source: ${displayList}${more}`);
+}
+
+    console.log("RAW TABLE:", data.raw_table);
+
+  // Identify IPs where both ISP and Country are missing
+const rawIPs = inputField.value
+  .split(/[\s,\n]+/)
+  .map(ip => ip.trim())
+  .filter(ip => ip.length > 0);
+
+const processedIPs = (data.raw_table || []).map(row => row[0]);
+const skippedIPs = data.skipped || [];
+
+const droppedIPs = rawIPs.filter(ip => {
+  return !processedIPs.includes(ip) &&
+         !skippedIPs.includes(ip) &&
+         !duplicateIPs.includes(ip) &&
+         !privateIPs.includes(ip) &&
+         !extraIPs.includes(ip);
+});
+
+if (droppedIPs.length > 0) {
+  messages.push(`⚠️ ${droppedIPs.length} IPs returned no data from any source: ${droppedIPs.join(", ")}`);
+}
+messages.unshift(`✅ Data found for ${processedCount} IP${processedCount !== 1 ? 's' : ''}.`);
+
+    // Update UI message div with all warnings
+    messageDiv.innerHTML = messages.join("<br>") || "";
+
+    // Show summary and table
     summaryDiv.innerText = data.summary;
     summarySection.classList.remove("hidden");
 
@@ -130,10 +164,11 @@ async function fetchIPData() {
     tableSection.classList.remove("hidden");
 
     downloadBtn.style.display = "inline-block";
-
+    document.getElementById("resetContainer").classList.remove("hidden");
     // Save latest for copy/download
     window._latestSummary = data.summary;
     window._latestTable = data.raw_table;
+
   } catch (err) {
     console.error("Error:", err);
     alert("❌ Error retrieving IP info:\n" + err.message);
@@ -142,6 +177,7 @@ async function fetchIPData() {
     lookupButton.textContent = "Get Info";
   }
 }
+
 
 // Copy summary text to clipboard
 function copyToClipboard(elementId, btnId) {
@@ -219,23 +255,49 @@ function downloadExcel() {
 
 // Reset tool inputs and outputs
 function resetTool() {
+  // Clear input and messages
   document.getElementById("ipInput").value = "";
-  document.getElementById("message").innerHTML = "";
+  document.getElementById("message").innerText = "";
+  document.getElementById("errorMsg").classList.add("hidden");
+
+  // Hide results and reset UI
   document.getElementById("summarySection").classList.add("hidden");
-  document.getElementById("summary").innerHTML = "";
   document.getElementById("tableSection").classList.add("hidden");
+  document.getElementById("summary").innerText = "";
   document.getElementById("tableBody").innerHTML = "";
 
-  const downloadBtn = document.getElementById("downloadExcelBtn");
-  downloadBtn.style.display = "none";
-  downloadBtn.textContent = "Export to Excel";
-  downloadBtn.classList.remove("downloaded");
-  downloadBtn.disabled = false;
+  // Hide buttons
+  document.getElementById("downloadExcelBtn").style.display = "none";
+  document.getElementById("resetContainer").classList.add("hidden");
 
-  const errorMsg = document.getElementById("errorMsg");
-  errorMsg.classList.add("hidden");
-  errorMsg.textContent = "";
-
-  window._latestSummary = "";
-  window._latestTable = [];
+  // Reset spinner just in case
+  document.getElementById("spinner").classList.add("hidden");
 }
+const toggleThemeBtn = document.getElementById("toggleTheme");
+
+// Apply theme on initial load
+window.addEventListener("DOMContentLoaded", () => {
+  const savedTheme = localStorage.getItem("theme");
+  if (savedTheme === "light") {
+    document.body.classList.add("light-mode");
+    toggleThemeBtn.innerHTML = '<i class="ph ph-moon"></i>';
+  } else {
+    // Default is dark mode
+    document.body.classList.remove("light-mode");
+    toggleThemeBtn.innerHTML = '<i class="ph ph-sun"></i>';
+  }
+});
+
+// Toggle theme and store preference
+toggleThemeBtn.addEventListener("click", () => {
+  document.body.classList.toggle("light-mode");
+
+  const isLight = document.body.classList.contains("light-mode");
+  toggleThemeBtn.innerHTML = isLight
+    ? '<i class="ph ph-moon"></i>'
+    : '<i class="ph ph-sun"></i>';
+
+  // Save preference
+  localStorage.setItem("theme", isLight ? "light" : "dark");
+});
+

@@ -2,32 +2,41 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   background-color: #1e1e1e;
   color: #ffffff;
+  transition: background-color 0.4s ease, color 0.4s ease;
 }
+
 textarea {
   resize: vertical;
   background-color: #2a2a2a;
   color: #fff;
   border: 1px solid #444;
+  font-size: 1rem;
+  padding: 0.75rem;
 }
+
 table th, table td {
   text-align: center;
   vertical-align: middle;
-  font-size: 18px;
+  font-size: 1rem;
   background-color: #2a2a2a;
   color: #ffffff;
   border: 1px solid #666;
   padding: 0.75rem;
 }
+
 th {
   font-weight: 700;
   background-color: #3a3a3a;
 }
+
 table tr:nth-child(even) {
   background-color: #2f2f2f;
 }
+
 table tr:hover {
   background-color: #3f3f3f;
 }
+
 .spinner {
   border: 4px solid #333;
   border-top: 4px solid #4ade80;
@@ -37,13 +46,17 @@ table tr:hover {
   animation: spin 1s linear infinite;
   margin: 0 auto;
 }
+
 @keyframes spin {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
 }
+
 .neon-button {
   position: relative;
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 0.75rem 2rem;
   border-radius: 9999px;
   color: #ffffff;
@@ -53,6 +66,7 @@ table tr:hover {
   z-index: 0;
   overflow: hidden;
   transition: color 0.3s, background 0.3s;
+  white-space: nowrap;
 }
 
 .neon-button::before {
@@ -65,12 +79,8 @@ table tr:hover {
   animation: pulse-border 4s ease infinite;
   border-radius: inherit;
   z-index: -1;
-  mask: 
-    linear-gradient(#000 0 0) content-box, 
-    linear-gradient(#000 0 0);
-  -webkit-mask: 
-    linear-gradient(#000 0 0) content-box, 
-    linear-gradient(#000 0 0);
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: destination-out;
   mask-composite: exclude;
 }
@@ -98,53 +108,32 @@ table tr:hover {
   margin-bottom: 0.5rem;
 }
 
-/* Style scrollbars for dark theme */
 #summary::-webkit-scrollbar,
 #tableSection .overflow-x-auto::-webkit-scrollbar {
   width: 8px;
 }
 #summary::-webkit-scrollbar-thumb,
 #tableSection .overflow-x-auto::-webkit-scrollbar-thumb {
-  background: #4ade80; /* green scrollbar */
-  border-radius: 10px;
-}
-/* Optional custom scrollbar styling */
-.table-wrapper::-webkit-scrollbar {
-  height: 6px;
-  width: 6px;
-}
-.table-wrapper::-webkit-scrollbar-thumb {
-  background-color: #4ade80; /* green bar */
-  border-radius: 10px;
-}
-/* Style scrollbars inside the table */
-table::-webkit-scrollbar {
-  height: 6px;
-  width: 6px;
-}
-table::-webkit-scrollbar-thumb {
   background: #4ade80;
-  border-radius: 6px;
+  border-radius: 10px;
 }
-/* Apply styled scrollbars to both vertical and horizontal wrappers */
+
 .custom-scroll::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
-
 .custom-scroll::-webkit-scrollbar-track {
   background: #1f1f1f;
   border-radius: 10px;
 }
-
 .custom-scroll::-webkit-scrollbar-thumb {
-  background: #4ade80; /* light green */
+  background: #4ade80;
   border-radius: 10px;
 }
-
 .custom-scroll::-webkit-scrollbar-thumb:hover {
-  background: #22c55e; /* darker green on hover */
+  background: #22c55e;
 }
+
 #summary {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   font-size: 1.05rem;
@@ -152,8 +141,9 @@ table::-webkit-scrollbar-thumb {
   line-height: 1.6;
   color: #ffffff;
 }
+
 .downloaded {
-  background-color: #00c853 !important; /* green background */
+  background-color: #00c853 !important;
   color: white;
   border-color: #00c853;
   transition: all 0.4s ease;
@@ -174,13 +164,65 @@ table::-webkit-scrollbar-thumb {
   }
 }
 
-
 #resetBtn {
   background-color: #ff1744;
   border-color: #ff1744;
 }
-
 #resetBtn:hover {
   background-color: #f01440;
   border-color: #f01440;
+}
+
+/* 📱 Mobile Tweaks */
+@media screen and (max-width: 640px) {
+  .neon-button {
+    font-size: 0.85rem;
+    padding: 0.5rem 1rem;
+    width: 100%;
+    margin-bottom: 0.5rem;
+  }
+
+  .section-title {
+    font-size: 1rem;
+    padding: 0.25rem 0.75rem;
+  }
+
+  table th, table td {
+    font-size: 14px;
+    padding: 0.5rem;
+  }
+
+  textarea {
+    font-size: 0.95rem;
+    padding: 0.75rem;
+  }
+
+  .flex-wrap {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  #toggleTheme {
+    top: 1rem;
+    right: 1rem;
+    padding: 0.5rem;
+  }
+
+  #toggleTheme i {
+    font-size: 1.25rem;
+  }
+}
+
+/* 📱 Icon-Only Buttons on Very Small Screens */
+@media screen and (max-width: 360px) {
+  .icon-btn .btn-label {
+    display: none;
+  }
+  .icon-btn {
+    padding: 0.75rem;
+    justify-content: center;
+  }
+  .icon-btn i {
+    font-size: 1.5rem;
+  }
 }

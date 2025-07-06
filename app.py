@@ -243,18 +243,27 @@ def handle_ip_lookup():
     # Validate and deduplicate public IPs, limit to 100
     filtered_ips = []
     seen = set()
+    skipped_private_or_invalid = []
+
     for ip in raw_ips:
         if ip in seen:
             continue
+        seen.add(ip)
         if is_valid_public_ip(ip):
             filtered_ips.append(ip)
-            seen.add(ip)
+        else:
+            skipped_private_or_invalid.append(ip)
         if len(filtered_ips) == 100:
             break
 
+
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         results = list(executor.map(get_ip_info, filtered_ips))
-
+    # Track IPs with no useful data
+    no_data_ips = [r["ip"] for r in results if (
+        (not r["isp"] or r["isp"] == "N/A") and
+        (not r["country"] or r["country"] == "N/A")
+        )]
     table_rows = "".join(
         f"<tr><td>{r['ip']}</td><td>{r['isp']}</td><td>{r['country']}</td><td>{r['detections']}</td></tr>"
         for r in results
@@ -281,11 +290,11 @@ def handle_ip_lookup():
     print("----------------------------\n")
 
     return jsonify({
-        "summary": summary_text,
-        "table": table_rows,
-        "raw_table": [[r['ip'], r['isp'], r['country'], r['detections']] for r in results]
-    })
-
+    "summary": summary_text,
+    "table": table_rows,
+    "raw_table": [[r['ip'], r['isp'], r['country'], r['detections']] for r in results],
+    "no_data_ips": no_data_ips
+})
 
 @app.route("/download_excel", methods=["POST"])
 def download_excel():
