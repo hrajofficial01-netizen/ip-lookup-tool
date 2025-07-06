@@ -15,6 +15,9 @@
     <h1 class="text-5xl font-extrabold text-center mb-8 text-green-400">IP Lookup</h1>
 
     <textarea id="ipInput" rows="6" class="w-full p-4 text-lg rounded-lg border-2 border-green-400 bg-[#1e1e1e] text-white placeholder-gray-400" placeholder="Enter IPs separated by comma, space, or new line..."></textarea>
+    
+    <!-- Added message div below textarea -->
+    <div id="message" class="mt-2 text-yellow-400 font-semibold text-sm"></div>
 
     <div class="flex justify-start">
       <button id="lookupButton" onclick="fetchIPData()" class="neon-button mt-4 flex items-center gap-2 text-lg">
@@ -70,7 +73,8 @@
           <i class="ph ph-copy"></i>
           Copy Table
         </button>
-        <button id="downloadExcelBtn" onclick="downloadExcel()" class="neon-button flex items-center gap-4 text-sm px-4 py-2 hidden">
+        <!-- Removed hidden class, using inline style for JS control -->
+        <button id="downloadExcelBtn" onclick="downloadExcel()" class="neon-button flex items-center gap-4 text-sm px-4 py-2" style="display:none;">
           <i class="ph ph-download-simple"></i>
           Export to Excel
         </button>
