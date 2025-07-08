@@ -27,7 +27,7 @@ vt_key_lock = threading.Lock()
 exhausted_vt_keys = set()
 exhausted_other_keys = set()
 
-MAX_WORKERS = 50
+MAX_WORKERS = 100
 
 # Track services usage per request
 used_services = set()
