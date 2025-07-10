@@ -26,6 +26,9 @@ vt_key_index = 0
 vt_key_lock = threading.Lock()
 exhausted_vt_keys = set()
 exhausted_other_keys = set()
+vt_keys_used = set()
+vt_keys_success = set()
+
 
 MAX_WORKERS = 100
 
@@ -47,8 +50,13 @@ def get_country_name(code):
         return country_name
     except:
         return code
+def mask_key(key):
+    return key[:4] + "..." + key[-4:] if key else "None"
 
 def get_next_vt_key():
+    if not VT_KEYS:
+        return None
+
     global vt_key_index
     with vt_key_lock:
         for _ in range(len(VT_KEYS)):
@@ -59,30 +67,49 @@ def get_next_vt_key():
         return None
 
 def query_virustotal(ip):
-    key = get_next_vt_key()
-    if not key:
-        return {}, "NoVTKey"
-    headers = {"x-apikey": key}
-    try:
-        resp = requests.get(f"https://www.virustotal.com/api/v3/ip_addresses/{ip}", headers=headers, timeout=10)
-        if resp.status_code == 401:
-            exhausted_vt_keys.add(key)
-            return query_virustotal(ip)  # Retry with next key
-        if resp.status_code != 200:
-            return {}, "VTError"
-        data = resp.json()
-        attrs = data.get("data", {}).get("attributes", {})
-        isp = attrs.get("as_owner")
-        country = attrs.get("country")
-        detections = attrs.get("last_analysis_stats", {}).get("malicious", 0)
-        used_services.add("VT")
-        return {
-            "isp": isp,
-            "country": get_country_name(country),
-            "detections": detections
-        }, "VT"
-    except Exception as e:
-        return {}, f"VT ERROR: {str(e)}"
+    used_services.add("VT")  # Mark as used even if it fails
+
+    tried_keys = set()
+
+    while True:
+        key = get_next_vt_key()
+        if not key or key in tried_keys:
+            break
+
+        headers = {"x-apikey": key}
+        vt_keys_used.add(key)
+        tried_keys.add(key)
+
+        try:
+            resp = requests.get(f"https://www.virustotal.com/api/v3/ip_addresses/{ip}", headers=headers, timeout=10)
+            
+            if resp.status_code == 401:
+                exhausted_vt_keys.add(key)
+                continue  # Try next key
+            elif resp.status_code != 200:
+                return {}, "VTError", key  # Any other error — stop trying this key
+            
+            # ✅ Success
+            data = resp.json()
+            vt_keys_success.add(key)
+
+            attrs = data.get("data", {}).get("attributes", {})
+            isp = attrs.get("as_owner")
+            country = attrs.get("country")
+            detections = attrs.get("last_analysis_stats", {}).get("malicious", 0)
+
+            return {
+                "isp": isp,
+                "country": get_country_name(country),
+                "detections": detections
+            }, "VT", key
+
+        except Exception as e:
+            return {}, f"VT ERROR: {str(e)}", key
+
+    return {}, "NoVTKeyAvailable", None
+
+
 
 def query_abuseipdb(ip):
     if not ABUSEIPDB_KEY:
@@ -169,9 +196,12 @@ def query_apivoid(ip):
 def get_ip_info(ip):
     final_result = {}
     source_map = {"isp": "None", "country": "None", "detections": "None"}
+    vt_key_used_for_ip = None
 
-    # Try VirusTotal first
-    result, source = query_virustotal(ip)
+    result, source, vt_key = query_virustotal(ip)
+    if vt_key:
+        vt_key_used_for_ip = vt_key
+
     if result:
         final_result.update(result)
         source_map.update({k: source for k in result})
@@ -186,24 +216,28 @@ def get_ip_info(ip):
                 ]
             }
             for f in as_completed(futures):
-                data, src = f.result()
-                if data:
-                    for k in ["isp", "country", "detections"]:
-                        # Only fallback if value is None or "N/A", but NOT 0 (0 is valid)
-                        if k not in final_result or final_result.get(k) in (None, "N/A"):
-                            final_result[k] = data.get(k)
-                            source_map[k] = src
-                    break
+                try:
+                    data, src = f.result()
+                    if data:
+                        for k in ["isp", "country", "detections"]:
+                            if k not in final_result or final_result.get(k) in (None, "N/A"):
+                                final_result[k] = data.get(k)
+                                source_map[k] = src
+                        break
+                except Exception:
+                    continue
 
-    # If any info missing, try APIVoid
+    # If any data still missing, use APIVoid as last fallback
     for k in ["isp", "country", "detections"]:
         if final_result.get(k) in (None, "N/A"):
-            result, src = query_apivoid(ip)
-            if result and result.get(k) not in (None, "N/A"):
-                final_result[k] = result.get(k)
-                source_map[k] = src
+            try:
+                result, src = query_apivoid(ip)
+                if result and result.get(k) not in (None, "N/A"):
+                    final_result[k] = result.get(k)
+                    source_map[k] = src
+            except Exception:
+                continue
 
-    # Normalize final result values
     final_result = {
         "isp": final_result.get("isp") or "N/A",
         "country": final_result.get("country") or "N/A",
@@ -217,8 +251,10 @@ def get_ip_info(ip):
         "isp": final_result["isp"],
         "country": final_result["country"],
         "detections": final_result["detections"],
+        "vt_key_used": mask_key(vt_key_used_for_ip) if vt_key_used_for_ip else None,
         "summary": f"The IP: {ip} belongs to the ISP: {final_result['isp']} from the country: {final_result['country']} with detection count: {final_result['detections']}."
     }
+
 
 def is_valid_public_ip(ip):
     try:
@@ -236,7 +272,7 @@ def handle_ip_lookup():
     raw_ips = data.get("ips", [])
 
     # Reset global tracking per request
-    global used_services, unused_services
+    global used_services, unused_services, vt_keys_used, vt_keys_success
     used_services = set()
     unused_services = set()
 
@@ -244,6 +280,9 @@ def handle_ip_lookup():
     filtered_ips = []
     seen = set()
     skipped_private_or_invalid = []
+
+    vt_keys_used.clear()
+    vt_keys_success.clear()
 
     for ip in raw_ips:
         if ip in seen:
@@ -278,23 +317,74 @@ def handle_ip_lookup():
     summary_text = "\n".join(summary_lines)
 
     elapsed = round(time.time() - start, 2)
+        # Improved summary logging
     unused_services.update({"VT", "AbuseIPDB", "DBIP", "IPINFO", "APIVoid"} - used_services)
+    elapsed = round(time.time() - start, 2)
 
-    print("\n----- API USAGE SUMMARY -----")
-    print(f"IPs searched: {len(filtered_ips)}")
-    print("Used Services:", ", ".join(sorted(used_services)))
-    print("Unused Services:", ", ".join(sorted(unused_services)))
-    print("Exhausted VT Keys:", len(exhausted_vt_keys))
-    print("Exhausted Other Keys:", ", ".join(exhausted_other_keys))
-    print("Total Time:", elapsed, "seconds")
+    # Classify VT keys
+    # Determine which keys were actually used and successful in this request
+    vt_keys_success_current = vt_keys_used & vt_keys_success
+    vt_keys_exhausted_current = exhausted_vt_keys.copy()
+
+
+    print("\n📊 API USAGE SUMMARY")
+    print(f"✅ Data found for {len(filtered_ips)} IP{'s' if len(filtered_ips) != 1 else ''} in {elapsed} seconds.")
+    print(f"🔧 Services Used     : {', '.join(sorted(used_services)) or 'None'}")
+    print(f"⚪ Services Unused   : {', '.join(sorted(unused_services)) or 'None'}")
+
+
+    # VT Key usage summary
+    print(f"✅ Successfully Used VT Keys: {len(vt_keys_success_current)}")
+    for key in vt_keys_success_current:
+        print(f"    {mask_key(key)}")
+
+
+    print(f"❌ Exhausted VT Keys: {len(exhausted_vt_keys)}")
+    for key in exhausted_vt_keys:
+        print(f"    {mask_key(key)}")
+
+
+    if exhausted_other_keys:
+        print("❌ Exhausted Other Services:", ", ".join(exhausted_other_keys))
+        
+    if len(vt_keys_exhausted_current) > 10:
+        print("⚠️ Warning: More than 10 VT keys are exhausted. Consider rotating or refreshing your keys.")
+    
+    vt_keys_used_current = vt_keys_success | exhausted_vt_keys
+    vt_keys_unused_current = set(VT_KEYS) - vt_keys_used_current
+
+    print(f"🟡 Unused VT Keys: {len(vt_keys_unused_current)}")
+    for key in vt_keys_unused_current:
+        print(f"    {mask_key(key)}")
+
+    # Optional: Masked key info for logging/debug (can be added to response if needed)
+    vt_keys_used_masked = {mask_key(k) for k in vt_keys_success}
+
+    abuse_key_used = mask_key(ABUSEIPDB_KEY) if "AbuseIPDB" in used_services else None
+    dbip_key_used = mask_key(DBIP_KEY) if "DBIP" in used_services else None
+    ipinfo_key_used = mask_key(IPINFO_KEY) if "IPINFO" in used_services else None
+    apivoid_key_used = mask_key(APIVOID_KEY) if "APIVoid" in used_services else None
+
+    print("Used API Keys:")
+    if vt_keys_used_masked:
+        print("  VT Keys:", ", ".join(vt_keys_used_masked))
+
+    if abuse_key_used: print("  AbuseIPDB Key:", abuse_key_used)
+    if dbip_key_used: print("  DBIP Key:", dbip_key_used)
+    if ipinfo_key_used: print("  IPInfo Key:", ipinfo_key_used)
+    if apivoid_key_used: print("  APIVoid Key:", apivoid_key_used)
+
     print("----------------------------\n")
+  
 
     return jsonify({
     "summary": summary_text,
     "table": table_rows,
-    "raw_table": [[r['ip'], r['isp'], r['country'], r['detections']] for r in results],
-    "no_data_ips": no_data_ips
+    "raw_table": [[r['ip'], r['isp'], r['country'], r['detections'], r['vt_key_used']] for r in results],
+    "no_data_ips": no_data_ips,
+    "per_ip_vt_keys": {r['ip']: r['vt_key_used'] for r in results}
 })
+
 
 @app.route("/download_excel", methods=["POST"])
 def download_excel():
@@ -315,7 +405,8 @@ def download_excel():
         cell.font = header_font
 
     for row in table_data:
-        ws.append(row)
+        ws.append(row[:4])  # Only keep IP, ISP, Country, Detections
+
 
     # Apply border + alignment + autofit for IP Info sheet
     thin_border = Border(left=Side(style="thin"), right=Side(style="thin"),

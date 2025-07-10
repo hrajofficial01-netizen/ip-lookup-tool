@@ -47,7 +47,14 @@
 
     <textarea id="ipInput" rows="6" class="w-full p-3 sm:p-4 text-base sm:text-lg rounded-lg border-2 border-green-400 bg-[#1e1e1e] text-white placeholder-gray-400" placeholder="Enter IPs separated by comma, space, or new line..."></textarea>
 
-    <div id="message" class="mt-2 text-yellow-400 font-semibold text-sm"></div>
+        <!-- Message Section -->
+    <div id="messageBlock" class="mt-10 hidden border border-yellow-400 rounded-xl p-6 bg-[#1e1e1e]">
+      <div class="section-title border-2 border-yellow-400 px-4 py-1 inline-block rounded-full mb-4 text-base sm:text-xl font-semibold text-center">
+        Status
+      </div>
+      <div id="message" class="whitespace-pre-wrap p-4 rounded-xl border border-gray-700 text-left text-sm sm:text-lg leading-relaxed font-mono max-h-96 overflow-y-auto custom-scroll text-yellow-300"></div>
+    </div>
+
 
     <div class="flex flex-wrap gap-3 justify-start mt-4">
       <button id="lookupButton" onclick="fetchIPData()" class="neon-button flex items-center gap-2 text-sm sm:text-lg icon-btn">

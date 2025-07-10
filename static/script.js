@@ -38,6 +38,9 @@ async function fetchIPData() {
   tableBody.innerHTML = "";
   downloadBtn.style.display = "none";
   messageDiv.innerHTML = "";
+  const messageBlock = document.getElementById("messageBlock");
+  messageBlock.classList.remove("show", "hidden");
+
 
   // Parse and validate input IPs
   let rawIPs = inputField.value
@@ -155,6 +158,11 @@ messages.unshift(`✅ Data found for ${processedCount} IP${processedCount !== 1 
 
     // Update UI message div with all warnings
     messageDiv.innerHTML = messages.join("<br>") || "";
+    const messageBlock = document.getElementById("messageBlock");
+    messageBlock.classList.remove("hidden");
+    void messageBlock.offsetWidth;  // reflow trigger
+    messageBlock.classList.add("show");
+
 
     // Show summary and table
     summaryDiv.innerText = data.summary;
@@ -257,7 +265,8 @@ function downloadExcel() {
 function resetTool() {
   // Clear input and messages
   document.getElementById("ipInput").value = "";
-  document.getElementById("message").innerText = "";
+  document.getElementById("messageBlock").innerText = "";
+  document.getElementById("message").classList.add("hidden");
   document.getElementById("errorMsg").classList.add("hidden");
 
   // Hide results and reset UI
@@ -300,4 +309,3 @@ toggleThemeBtn.addEventListener("click", () => {
   // Save preference
   localStorage.setItem("theme", isLight ? "light" : "dark");
 });
-

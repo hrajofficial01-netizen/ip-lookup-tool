@@ -226,3 +226,23 @@ table tr:hover {
     font-size: 1.5rem;
   }
 }
+#messageBlock {
+  opacity: 0;
+  transform: translateY(-5px);
+  transition: opacity 0.4s ease, transform 0.4s ease;
+  background-color: #1e1e1e;
+  color: #ffffff;
+  box-shadow: 0 0 10px rgba(253, 224, 71, 0.2);
+}
+#messageBlock.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+body.light-mode #messageBlock {
+  background-color: #fefce8;
+  color: #000000;
+  border-color: #facc15;
+}
+body.light-mode #message {
+  color: #000000;
+}
