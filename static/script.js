@@ -47,16 +47,22 @@ async function fetchIPData() {
 
 
   // Parse and validate input IPs
-  let rawIPs = inputField.value
-    .split(/[\s,\n]+/)
-    .map(ip => ip.trim())
-    .filter(ip => ip.length > 0);
+  // Parse and validate input IPs
+let rawIPs = inputField.value
+  .split(/[\s,\n]+/)
+  .map(ip => ip.trim())
+  .filter(ip => ip.length > 0);
 
-  if (rawIPs.length === 0) {
-    errorMsg.textContent = "⚠️ Please enter at least one IP address.";
-    errorMsg.classList.remove("hidden");
-    return;
-  }
+  // Reject if input contains sentence-style text
+const inputText = inputField.value.trim();
+const sentenceLike = /[a-zA-Z]{2,}/.test(inputText); // contains long words (indicates sentences)
+const ipsFound = rawIPs.filter(ip => isValidIP(ip));
+
+if (sentenceLike || ipsFound.length === 0) {
+  errorMsg.textContent = "⚠️ Please enter only valid IP addresses (no sentences or text).";
+  errorMsg.classList.remove("hidden");
+  return;
+}
 
   // Find duplicates
   const ipCounts = rawIPs.reduce((acc, ip) => {
@@ -186,6 +192,7 @@ requestAnimationFrame(() => {
   tableSection.classList.add("show");
   messageBlock.classList.add("show");
 });
+
       
 
     downloadBtn.style.display = "inline-block";
