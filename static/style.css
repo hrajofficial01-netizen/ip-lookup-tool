@@ -238,11 +238,17 @@ table tr:hover {
   opacity: 1;
   transform: translateY(0);
 }
-body.light-mode #messageBlock {
-  background-color: #fefce8;
-  color: #000000;
-  border-color: #facc15;
+
+/* Add in your CSS */
+.fade-in {
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 0.4s ease, transform 0.4s ease;
 }
-body.light-mode #message {
-  color: #000000;
+.fade-in.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+#messageBlock {
+  margin-bottom: 1.5rem;
 }

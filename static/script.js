@@ -7,17 +7,21 @@ function isValidIP(ip) {
 
 // Check if IP is private/reserved (basic IPv4)
 function isPrivateIP(ip) {
-  const parts = ip.split(".");
-  if (parts.length !== 4) return false;
-  const [a, b] = parts.map(Number);
+  const parts = ip.split(".").map(Number);
+  if (parts.length !== 4 || parts.some(isNaN)) return false;
+
+  const [a, b] = parts;
+
   return (
-    a === 10 ||
-    (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && b === 168) ||
-    a === 127 ||
-    (a === 169 && b === 254)
+    a === 10 || // 10.0.0.0/8
+    (a === 172 && b >= 16 && b <= 31) || // 172.16.0.0/12
+    (a === 192 && b === 168) || // 192.168.0.0/16
+    a === 127 || // 127.0.0.0/8 (loopback)
+    (a === 169 && b === 254) || // 169.254.0.0/16 (link-local)
+    (a === 100 && b >= 64 && b <= 127) // 100.64.0.0/10 (CGNAT)
   );
 }
+
 
 async function fetchIPData() {
   const inputField = document.getElementById("ipInput");
@@ -157,19 +161,32 @@ if (droppedIPs.length > 0) {
 messages.unshift(`✅ Data found for ${processedCount} IP${processedCount !== 1 ? 's' : ''}.`);
 
     // Update UI message div with all warnings
-    messageDiv.innerHTML = messages.join("<br>") || "";
-    const messageBlock = document.getElementById("messageBlock");
-    messageBlock.classList.remove("hidden");
-    void messageBlock.offsetWidth;  // reflow trigger
-    messageBlock.classList.add("show");
+    // Fill summary and table first
+      // Fill summary and table first
+summaryDiv.innerText = data.summary;
+tableBody.innerHTML = data.table;
 
+// Add fade-in classes
+summarySection.classList.add("fade-in");
+tableSection.classList.add("fade-in");
+messageBlock.classList.add("fade-in");
 
-    // Show summary and table
-    summaryDiv.innerText = data.summary;
-    summarySection.classList.remove("hidden");
+// Set content
+messageDiv.innerHTML = messages.join("<br>") || "";
 
-    tableBody.innerHTML = data.table;
-    tableSection.classList.remove("hidden");
+// Reveal sections (still faded at first)
+summarySection.classList.remove("hidden");
+tableSection.classList.remove("hidden");
+messageBlock.style.display = "block";
+messageBlock.classList.remove("hidden");
+
+// Animate all together
+requestAnimationFrame(() => {
+  summarySection.classList.add("show");
+  tableSection.classList.add("show");
+  messageBlock.classList.add("show");
+});
+      
 
     downloadBtn.style.display = "inline-block";
     document.getElementById("resetContainer").classList.remove("hidden");
@@ -183,6 +200,8 @@ messages.unshift(`✅ Data found for ${processedCount} IP${processedCount !== 1 
   } finally {
     lookupButton.disabled = false;
     lookupButton.textContent = "Get Info";
+    console.log("Messages:", messages);
+
   }
 }
 
@@ -265,8 +284,15 @@ function downloadExcel() {
 function resetTool() {
   // Clear input and messages
   document.getElementById("ipInput").value = "";
-  document.getElementById("messageBlock").innerText = "";
-  document.getElementById("message").classList.add("hidden");
+  document.getElementById("message").innerText = "";
+
+  const messageBlock = document.getElementById("messageBlock");
+  if (messageBlock) {
+    messageBlock.classList.remove("show");
+    messageBlock.classList.add("hidden");
+    messageBlock.style.display = "none"; // ✅ Hide completely
+  }
+
   document.getElementById("errorMsg").classList.add("hidden");
 
   // Hide results and reset UI
@@ -282,6 +308,9 @@ function resetTool() {
   // Reset spinner just in case
   document.getElementById("spinner").classList.add("hidden");
 }
+
+
+
 const toggleThemeBtn = document.getElementById("toggleTheme");
 
 // Apply theme on initial load
