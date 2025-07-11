@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!DOCTYPE html> 
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -47,43 +47,43 @@
     </div>
     
     <!-- Input and Message Section -->
-  <div id="mainInputArea" class="flex flex-col lg:flex-row gap-16 items-start justify-center min-h-[40vh]">
-  <!-- Textarea -->
-  <div class="w-full lg:w-1/2">
-    <textarea id="ipInput" autocomplete="off" rows="6" class="w-full p-3 sm:p-4 text-base sm:text-lg rounded-lg border-2 border-green-400 bg-[#1e1e1e] text-white placeholder-gray-400 mt-6" placeholder="Enter IPs separated by comma, space, or new line..."></textarea>
+    <div id="mainInputArea" class="flex flex-col lg:flex-row gap-16 items-start justify-center min-h-[40vh]">
+      <!-- Textarea -->
+      <div class="w-full lg:w-1/2">
+        <textarea id="ipInput" autocomplete="off" rows="6" class="w-full p-3 sm:p-4 text-base sm:text-lg rounded-lg border-2 border-green-400 bg-[#1e1e1e] text-white placeholder-gray-400 mt-6" placeholder="Enter IPs separated by comma, space, or new line..."></textarea>
 
-    <!-- Buttons -->
-    <div class="flex flex-wrap gap-3 justify-start mt-4">
-      <button id="lookupButton" onclick="fetchIPData()" class="neon-button flex items-center gap-2 text-sm sm:text-lg icon-btn">
-        <i class="ph ph-arrow-right"></i>
-        <span class="btn-label">Get Info</span>
-      </button>
-      <div id="resetContainer" class="hidden">
-        <button id="resetBtn" class="neon-button icon-btn" onclick="resetTool()">
-          <i class="ph ph-arrow-counter-clockwise"></i>
-          <span class="btn-label">Reset</span>
-        </button>
-      </div>
-    </div>
-
-    <p id="errorMsg" class="text-red-400 text-left mt-2 hidden font-semibold text-sm sm:text-lg">⚠️ Please enter at least one valid IP address.</p>
-
-    <div id="spinner" class="mt-4 hidden flex justify-start">
-      <div class="spinner"></div>
-    </div>
-  </div>
-
-  <!-- Message Block -->
-  <div class="w-full lg:w-1/2">
-    <div id="messageBlock" class="hidden border border-yellow-400 rounded-xl p-6 bg-[#1e1e1e] w-full mt-6" >
-      <div class="section-title border-2 border-yellow-400 px-4 py-1 inline-block rounded-full mb-4 text-base sm:text-xl font-semibold text-center">
-        Request Summary
-      </div>
-      <div id="message" class="whitespace-pre-wrap p-4 rounded-xl border border-gray-700 text-left text-sm sm:text-lg leading-relaxed font-mono max-h-96 overflow-y-auto custom-scroll text-yellow-300"></div>
-    </div>
+        <!-- Buttons -->
+        <div class="flex flex-col sm:flex-row flex-wrap gap-3 justify-start mt-4 w-full">
+  <button id="lookupButton" onclick="fetchIPData()" class="neon-button w-full sm:w-auto flex items-center gap-2 text-sm sm:text-lg icon-btn">
+    <i class="ph ph-arrow-right"></i>
+    <span class="btn-label">Get Info</span>
+  </button>
+  <div id="resetContainer" class="hidden">
+    <button id="resetBtn" onclick="resetTool()" class="neon-button w-full sm:w-auto icon-btn flex items-center gap-2 text-sm sm:text-lg">
+      <i class="ph ph-arrow-counter-clockwise"></i>
+      <span class="btn-label">Reset</span>
+    </button>
   </div>
 </div>
 
+
+        <p id="errorMsg" class="text-red-400 text-left mt-2 hidden font-semibold text-sm sm:text-lg">⚠️ Please enter at least one valid IP address.</p>
+
+        <div id="spinner" class="mt-4 hidden flex justify-start">
+          <div class="spinner"></div>
+        </div>
+      </div>
+
+      <!-- Message Block -->
+      <div class="w-full lg:w-1/2">
+        <div id="messageBlock" class="hidden border border-yellow-400 rounded-xl p-6 bg-[#1e1e1e] w-full mt-6">
+          <div class="section-title border-2 border-yellow-400 px-4 py-1 inline-block rounded-full mb-4 text-base sm:text-xl font-semibold text-center">
+            Request Summary
+          </div>
+          <div id="message" class="whitespace-pre-wrap p-4 rounded-xl border border-gray-700 text-left text-sm sm:text-lg leading-relaxed font-mono max-h-96 overflow-y-auto custom-scroll text-yellow-300"></div>
+        </div>
+      </div>
+    </div>
 
     <!-- Summary and Table Section -->
     <div class="flex flex-col lg:flex-row gap-16">
