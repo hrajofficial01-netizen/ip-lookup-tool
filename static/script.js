@@ -1,7 +1,7 @@
-// Validate IPv4 and IPv6 format
+// Stricter IPv4 and basic IPv6 format validation
 function isValidIP(ip) {
-  const ipv4 = /^\b(\d{1,3}\.){3}\d{1,3}\b$/;
-  const ipv6 = /^[0-9a-fA-F:]+$/;
+  const ipv4 = /^(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)){3}$/;
+  const ipv6 = /^(([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|::1)$/;
   return ipv4.test(ip) || ipv6.test(ip);
 }
 
@@ -21,7 +21,6 @@ function isPrivateIP(ip) {
     (a === 100 && b >= 64 && b <= 127) // 100.64.0.0/10 (CGNAT)
   );
 }
-
 
 async function fetchIPData() {
   const inputField = document.getElementById("ipInput");
@@ -45,24 +44,30 @@ async function fetchIPData() {
   const messageBlock = document.getElementById("messageBlock");
   messageBlock.classList.remove("show", "hidden");
 
-
   // Parse and validate input IPs
-  // Parse and validate input IPs
-let rawIPs = inputField.value
-  .split(/[\s,\n]+/)
-  .map(ip => ip.trim())
-  .filter(ip => ip.length > 0);
+  let rawIPs = inputField.value
+    .split(/[\s,\n]+/)
+    .map(ip => ip.trim())
+    .filter(ip => ip.length > 0);
 
-  // Reject if input contains sentence-style text
-const inputText = inputField.value.trim();
-const sentenceLike = /[a-zA-Z]{2,}/.test(inputText); // contains long words (indicates sentences)
-const ipsFound = rawIPs.filter(ip => isValidIP(ip));
+  // Check for sentence-style input
+  const inputText = inputField.value.trim();
+  const sentenceLike = /[a-zA-Z]{2,}/.test(inputText); // contains long words (indicates sentences)
+  
+  const invalidIPs = rawIPs.filter(ip => !isValidIP(ip));
+  const validIPs = rawIPs.filter(ip => isValidIP(ip));
 
-if (sentenceLike || ipsFound.length === 0) {
-  errorMsg.textContent = "⚠️ Please enter only valid IP addresses (no sentences or text).";
-  errorMsg.classList.remove("hidden");
-  return;
-}
+  if (sentenceLike || validIPs.length === 0) {
+    errorMsg.textContent = "⚠️ Please enter only valid IP addresses.";
+    errorMsg.classList.remove("hidden");
+    return;
+  }
+
+  if (invalidIPs.length > 0) {
+    errorMsg.textContent = `⚠️ Please enter valid IP(s): ${invalidIPs.join(", ")}`;
+    errorMsg.classList.remove("hidden");
+    return;
+  }
 
   // Find duplicates
   const ipCounts = rawIPs.reduce((acc, ip) => {
