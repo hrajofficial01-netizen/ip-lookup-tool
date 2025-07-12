@@ -30,6 +30,7 @@ function isValidURL(str) {
   }
 }
 
+// Main fetch function
 async function fetchIPData() {
   const inputField = document.getElementById("ipInput");
   const lookupButton = document.getElementById("lookupButton");
@@ -124,7 +125,7 @@ async function fetchIPData() {
     const data = await response.json();
     const processedCount = data.raw_table?.length || 0;
 
-    if (data.no_data_ips?.length > 0) {
+    if (Array.isArray(data.no_data_ips) && data.no_data_ips.length > 0) {
       const displayList = data.no_data_ips.slice(0, 5).join(", ");
       const more = data.no_data_ips.length > 5 ? ` and ${data.no_data_ips.length - 5} more...` : "";
       messages.push(`⚠️ ${data.no_data_ips.length} entries returned no data: ${displayList}${more}`);
@@ -132,42 +133,40 @@ async function fetchIPData() {
 
     messages.unshift(`✅ Data found for ${processedCount} entr${processedCount !== 1 ? 'ies' : 'y'}.`);
 
-    // ✅ Show output
     summaryDiv.innerText = data.summary;
 
-// Dynamically construct table header and rows based on presence of Resolved IP
-const hasResolvedIP = (data.raw_table || []).some(row => row[1] !== "-");
+    const hasResolvedIP = data.column_label === "IP/URL";
 
-// Build the header row
-const tableHead = document.querySelector("#tableSection thead");
-tableHead.innerHTML = ""; // clear existing
-const headerRow = document.createElement("tr");
-const headerTitles = hasResolvedIP
-  ? ["IP/URL", "Resolved IP", "ISP", "Country", "Detections"]
-  : ["IP/URL", "ISP", "Country", "Detections"];
+    const tableHead = document.querySelector("#tableSection thead");
+    tableHead.innerHTML = "";
+    const headerRow = document.createElement("tr");
+    const headerTitles = hasResolvedIP
+      ? ["IP/URL", "Resolved IP", "ISP", "Country", "Detections"]
+      : ["IP/URL", "ISP", "Country", "Detections"];
 
-for (const title of headerTitles) {
-  const th = document.createElement("th");
-  th.innerText = title;
-  headerRow.appendChild(th);
-}
-tableHead.appendChild(headerRow);
+    for (const title of headerTitles) {
+      const th = document.createElement("th");
+      th.innerText = title;
+      th.className = "border px-3 py-2 text-center";
+      headerRow.appendChild(th);
+    }
+    tableHead.appendChild(headerRow);
 
-// Build table body
-tableBody.innerHTML = "";
-for (const row of data.raw_table || []) {
-  const tr = document.createElement("tr");
-  const cells = hasResolvedIP
-    ? row.slice(0, 5) // [IP/URL, Resolved IP, ISP, Country, Detections]
-    : [row[0], row[2], row[3], row[4]]; // skip resolved IP
-  for (const cell of cells) {
-    const td = document.createElement("td");
-    td.innerText = cell;
-    tr.appendChild(td);
-  }
-  tableBody.appendChild(tr);
-}
+    tableBody.innerHTML = "";
+    for (const row of data.raw_table || []) {
+      const tr = document.createElement("tr");
+      const cells = hasResolvedIP
+        ? row.slice(0, 5)
+        : [row[0], row[2], row[3], row[4]];
 
+      for (const cell of cells) {
+        const td = document.createElement("td");
+        td.innerText = cell;
+        td.className = "border px-3 py-1 text-center";
+        tr.appendChild(td);
+      }
+      tableBody.appendChild(tr);
+    }
 
     summarySection.classList.remove("hidden");
     tableSection.classList.remove("hidden");
@@ -185,13 +184,7 @@ for (const row of data.raw_table || []) {
 
     window._latestSummary = data.summary;
     window._latestTable = data.raw_table;
-
-    // ✅ Store dynamic label for Excel download
     window._columnLabel = data.column_label || "IP";
-
-    // ✅ Update visible table header (if needed)
-    const headerCell = document.querySelector("#tableSection thead th:first-child");
-    if (headerCell) headerCell.textContent = window._columnLabel;
 
   } catch (err) {
     console.error("Error:", err);
@@ -201,7 +194,6 @@ for (const row of data.raw_table || []) {
     lookupButton.textContent = "Get Info";
   }
 }
-
 
 // Copy summary to clipboard
 function copyToClipboard(elementId, btnId) {
@@ -239,7 +231,6 @@ function copyTableToClipboard(btnId) {
 }
 
 // Download Excel file
-// Download Excel file
 function downloadExcel() {
   fetch("/download_excel", {
     method: "POST",
@@ -247,7 +238,7 @@ function downloadExcel() {
     body: JSON.stringify({
       table_data: window._latestTable || [],
       summary: window._latestSummary || "",
-      column_label: window._columnLabel || "IP"  // 🔄 Pass dynamic label
+      column_label: window._columnLabel || "IP"
     })
   })
   .then(resp => resp.blob())
@@ -277,7 +268,6 @@ function downloadExcel() {
     alert("Download failed. Please try again.");
   });
 }
-
 
 // Reset tool
 function resetTool() {

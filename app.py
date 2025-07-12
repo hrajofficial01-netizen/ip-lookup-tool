@@ -424,85 +424,81 @@ from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 
 @app.route("/download_excel", methods=["POST"])
 def download_excel():
-    import io
-    from flask import send_file
     from openpyxl import Workbook
     from openpyxl.styles import Font, Alignment, Border, Side
     from openpyxl.utils import get_column_letter
+    import io
 
     data = request.get_json()
     table_data = data.get("table_data", [])
-    summary = data.get("summary", "")
+    summary_text = data.get("summary", "")
     column_label = data.get("column_label", "IP")
 
     print("Incoming /download_excel payload:")
-    print("Summary:", summary)
+    print("Summary:", summary_text.strip())
     print("Column label:", column_label)
     if table_data:
         print("First row of table_data:", table_data[0])
 
     wb = Workbook()
+    ws_table = wb.active
+    ws_table.title = "Lookup Data"
 
-    # ====== IP Data Sheet ======
-    ws_data = wb.active
-    ws_data.title = "IP Data"
-
-    # Determine if resolved IP column is needed
-    has_resolved_ip = any(len(row) > 5 and row[1] != "-" for row in table_data)
-
-    # Define headers
-    if has_resolved_ip:
-        headers = [column_label, "Resolved IP", "ISP", "Country", "Detection Count"]
-    else:
-        headers = [column_label, "ISP", "Country", "Detection Count"]
-
-    # Add header row
-    ws_data.append(headers)
-
-    # Set style for headers
-    for cell in ws_data[1]:
-        cell.font = Font(bold=True)
-        cell.alignment = Alignment(horizontal="center", vertical="center")
-
-    # Border style
-    border_style = Border(
-        left=Side(border_style="thin", color="000000"),
-        right=Side(border_style="thin", color="000000"),
-        top=Side(border_style="thin", color="000000"),
-        bottom=Side(border_style="thin", color="000000"),
+    # Determine if "Resolved IP" column is present
+    has_resolved_ip = any(
+        isinstance(row, list) and len(row) >= 5 and str(row[1]).strip() not in ("-", "", "None")
+        for row in table_data
     )
 
-    # Add data rows
+
+    # Header
+    headers = (
+        [column_label, "Resolved IP", "ISP", "Country", "Detections"]
+        if has_resolved_ip
+        else [column_label, "ISP", "Country", "Detections"]
+    )
+    ws_table.append(headers)
+
+    # Body
     for row in table_data:
         if has_resolved_ip:
-            row_data = row[:5]  # [IP/URL, Resolved IP, ISP, Country, Detections]
+            ws_table.append(row[:5])
         else:
-            row_data = [row[0], row[2], row[3], row[4]]
-        ws_data.append(row_data)
+            ws_table.append([row[0], row[2], row[3], row[4]])
 
-    # Apply formatting and borders to all cells
-    for row in ws_data.iter_rows(min_row=1, max_row=ws_data.max_row, max_col=ws_data.max_column):
+    # Formatting styles
+    bold_font = Font(bold=True)
+    center_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    thin_border = Border(
+        left=Side(style="thin"),
+        right=Side(style="thin"),
+        top=Side(style="thin"),
+        bottom=Side(style="thin"),
+    )
+
+    # Apply formatting
+    for row in ws_table.iter_rows():
         for cell in row:
-            cell.alignment = Alignment(horizontal="center", vertical="center")
-            cell.border = border_style
+            cell.alignment = center_align
+            cell.border = thin_border
+            if cell.row == 1:
+                cell.font = bold_font
 
-    # Auto-fit columns
-    for col in ws_data.columns:
-        max_len = max(len(str(cell.value or "")) for cell in col)
-        ws_data.column_dimensions[get_column_letter(col[0].column)].width = max_len + 5
+    # Autofit column width
+    for col_cells in ws_table.columns:
+        max_length = max(len(str(cell.value)) if cell.value else 0 for cell in col_cells)
+        col_letter = get_column_letter(col_cells[0].column)
+        ws_table.column_dimensions[col_letter].width = max(12, min(max_length + 4, 50))
 
-    # ====== Summary Sheet ======
+    # Summary sheet
     ws_summary = wb.create_sheet("Summary")
-    ws_summary["A1"] = "Summary"
-    ws_summary["A1"].font = Font(bold=True)
+    ws_summary["A1"] = "Scan Summary"
+    ws_summary["A1"].font = Font(size=14, bold=True)
+    ws_summary["A2"] = summary_text.strip()
+    ws_summary["A2"].alignment = Alignment(wrap_text=True, vertical="top")
+    ws_summary.column_dimensions["A"].width = 100
 
-    for i, line in enumerate(summary.split("\n"), start=2):
-        ws_summary[f"A{i}"] = line
-
-    max_len = max((len(str(cell.value or "")) for cell in ws_summary["A"] if cell.value), default=10)
-    ws_summary.column_dimensions["A"].width = max_len + 5
-
-    # ====== Return Excel file ======
+    # Return Excel file
     output = io.BytesIO()
     wb.save(output)
     output.seek(0)
@@ -513,7 +509,6 @@ def download_excel():
         as_attachment=True,
         download_name="IP_Info.xlsx"
     )
-
 
 @app.route("/")
 def index():
