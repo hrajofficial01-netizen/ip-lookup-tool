@@ -296,7 +296,7 @@ def lookup_url(url):
         "country": ip_info.get("country"),
         "detections": detections,
         "vt_key_used": ip_info.get("vt_key_used"),
-        "summary": f"The URL: {url} resolves to IP: {resolved_ip} and has {detections} detections belonging to ISP: {ip_info.get('isp')} with Country: {ip_info.get('country')}."
+        "summary": f"The URL:  {url}  resolves to IP:  {resolved_ip}  and has  {detections}  detections belonging to ISP:  {ip_info.get('isp')}  with Country:  {ip_info.get('country')} ."
     }
 
 
