@@ -440,6 +440,42 @@ body.light-mode .neon-button {
   background-color: #1f2937 !important;
   color: white !important;
   border: none;
+    box-shadow: 0 0 0 1px #1a1a1a; /* Thin dark ring to contain the glow */
+
+}
+/* Neon border matching neon button style */
+.neon-border {
+  position: relative;
+  border-radius: 1rem;
+  z-index: 0;
+  overflow: visible;}
+
+.neon-border::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: -1;
+  border-radius: inherit;
+  border: 2px solid transparent;
+  background: linear-gradient(90deg, #00f0ff, #ff00c8, #fffb00, #00ff94);
+  background-size: 400% 400%;
+  animation: pulse-border 5s ease infinite;
+  -webkit-mask: 
+    linear-gradient(#fff 0 0) content-box, 
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: destination-out;
+  mask: 
+    linear-gradient(#fff 0 0) content-box, 
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  padding: 2px;
+  box-sizing: border-box;
+  filter: none; /* Remove the blur that makes it look like a glow box */
 }
 
-
+body.light-mode .neon-border::before {
+  display: none;
+}

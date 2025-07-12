@@ -9,13 +9,20 @@ from openpyxl.styles import Alignment, Border, Side, Font
 from iso3166 import countries
 import ipaddress
 import tempfile
+import socket
+from urllib.parse import urlparse
 import time
+import io
+import io
+from flask import Flask, request, jsonify, send_file, render_template
+from openpyxl import Workbook
+from openpyxl.styles import Font
+from openpyxl.utils import get_column_letter
 
 load_dotenv()
 
 app = Flask(__name__)
 
-# Load API keys from environment variables
 VT_KEYS = [key.strip() for key in os.getenv("VT_API_KEYS", "").split(",") if key.strip()]
 ABUSEIPDB_KEY = os.getenv("ABUSEIPDB_API_KEY")
 DBIP_KEY = os.getenv("DBIP_API_KEY")
@@ -29,14 +36,9 @@ exhausted_other_keys = set()
 vt_keys_used = set()
 vt_keys_success = set()
 
-
 MAX_WORKERS = 100
-
-# Track services usage per request
 used_services = set()
 unused_services = set()
-
-# Cache for country names to avoid repeated lookups
 country_cache = {}
 
 def get_country_name(code):
@@ -45,18 +47,16 @@ def get_country_name(code):
     if code in country_cache:
         return country_cache[code]
     try:
-        country_name = countries.get(code.upper()).name
-        country_cache[code] = country_name
-        return country_name
+        name = countries.get(code.upper()).name
+        country_cache[code] = name
+        return name
     except:
         return code
+
 def mask_key(key):
     return key[:4] + "..." + key[-4:] if key else "None"
 
 def get_next_vt_key():
-    if not VT_KEYS:
-        return None
-
     global vt_key_index
     with vt_key_lock:
         for _ in range(len(VT_KEYS)):
@@ -66,72 +66,76 @@ def get_next_vt_key():
                 return key
         return None
 
+def fetch_virustotal_url_data(url):
+    result = {"detections": None, "services_used": []}
+    key = get_next_vt_key()
+    if not key:
+        return result
+    headers = {"x-apikey": key}
+    try:
+        scan_url = "https://www.virustotal.com/api/v3/urls"
+        resp = requests.post(scan_url, headers=headers, data={"url": url})
+        if resp.status_code != 200:
+            exhausted_vt_keys.add(key)
+            return result
+        scan_id = resp.json()['data']['id']
+        report_url = f"https://www.virustotal.com/api/v3/urls/{scan_id}"
+        resp = requests.get(report_url, headers=headers)
+        if resp.status_code != 200:
+            exhausted_vt_keys.add(key)
+            return result
+        data = resp.json().get('data', {}).get('attributes', {})
+        detections = data.get('last_analysis_stats', {}).get('malicious', 0)
+        result['detections'] = detections
+        result['services_used'].append("VirusTotal URL")
+    except Exception as e:
+        print(f"[ERROR] VT URL scan failed: {e}")
+    return result
+
 def query_virustotal(ip):
-    used_services.add("VT")  # Mark as used even if it fails
-
-    tried_keys = set()
-
+    used_services.add("VT")
+    tried = set()
     while True:
         key = get_next_vt_key()
-        if not key or key in tried_keys:
+        if not key or key in tried:
             break
-
+        tried.add(key)
         headers = {"x-apikey": key}
         vt_keys_used.add(key)
-        tried_keys.add(key)
-
         try:
             resp = requests.get(f"https://www.virustotal.com/api/v3/ip_addresses/{ip}", headers=headers, timeout=10)
-            
             if resp.status_code == 401:
                 exhausted_vt_keys.add(key)
-                continue  # Try next key
+                continue
             elif resp.status_code != 200:
-                return {}, "VTError", key  # Any other error — stop trying this key
-            
-            # ✅ Success
+                return {}, "VTError", key
             data = resp.json()
             vt_keys_success.add(key)
-
-            attrs = data.get("data", {}).get("attributes", {})
-            isp = attrs.get("as_owner")
-            country = attrs.get("country")
-            detections = attrs.get("last_analysis_stats", {}).get("malicious", 0)
-
+            attr = data.get("data", {}).get("attributes", {})
             return {
-                "isp": isp,
-                "country": get_country_name(country),
-                "detections": detections
+                "isp": attr.get("as_owner"),
+                "country": get_country_name(attr.get("country")),
+                "detections": attr.get("last_analysis_stats", {}).get("malicious", 0)
             }, "VT", key
-
         except Exception as e:
             return {}, f"VT ERROR: {str(e)}", key
-
     return {}, "NoVTKeyAvailable", None
-
-
 
 def query_abuseipdb(ip):
     if not ABUSEIPDB_KEY:
         return {}, "NoKey"
-    headers = {
-        "Key": ABUSEIPDB_KEY,
-        "Accept": "application/json"
-    }
+    headers = {"Key": ABUSEIPDB_KEY, "Accept": "application/json"}
     try:
         resp = requests.get(f"https://api.abuseipdb.com/api/v2/check?ipAddress={ip}&maxAgeInDays=90", headers=headers, timeout=10)
         if resp.status_code == 429:
             exhausted_other_keys.add("AbuseIPDB")
             return {}, "RateLimit"
         data = resp.json().get("data", {})
-        isp = data.get("isp")
-        country = data.get("countryCode")
-        detections = data.get("totalReports", 0)
         used_services.add("AbuseIPDB")
         return {
-            "isp": isp,
-            "country": get_country_name(country),
-            "detections": detections
+            "isp": data.get("isp"),
+            "country": get_country_name(data.get("countryCode")),
+            "detections": data.get("totalReports", 0)
         }, "AbuseIPDB"
     except Exception as e:
         return {}, f"ABUSEIPDB ERROR: {str(e)}"
@@ -174,10 +178,7 @@ def query_apivoid(ip):
     if not APIVOID_KEY:
         return {}, "NoKey"
     try:
-        resp = requests.get(
-            f"https://endpoint.apivoid.com/iprep/v1/pay-as-you-go/?key={APIVOID_KEY}&ip={ip}",
-            timeout=10
-        )
+        resp = requests.get(f"https://endpoint.apivoid.com/iprep/v1/pay-as-you-go/?key={APIVOID_KEY}&ip={ip}", timeout=10)
         if resp.status_code == 429:
             exhausted_other_keys.add("APIVoid")
             return {}, "RateLimit"
@@ -193,20 +194,43 @@ def query_apivoid(ip):
     except Exception as e:
         return {}, f"APIVOID ERROR: {str(e)}"
 
+def resolve_url_to_ip(url):
+    try:
+        if not url.startswith(('http://', 'https://')):
+            url = 'http://' + url
+        hostname = urlparse(url).hostname
+        if hostname:
+            resolved_ip = socket.gethostbyname(hostname)
+            return hostname, resolved_ip
+    except Exception as e:
+        print(f"[ERROR] Could not resolve {url} - {e}")
+    return None, None
+
+def is_valid_public_ip(ip):
+    try:
+        ip_obj = ipaddress.ip_address(ip)
+        return not (ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_unspecified)
+    except:
+        return False
+
+def is_valid_url(url):
+    try:
+        parsed = urlparse(url if url.startswith("http") else f"http://{url}")
+        return bool(parsed.hostname)
+    except:
+        return False
+
 def get_ip_info(ip):
-    final_result = {}
-    source_map = {"isp": "None", "country": "None", "detections": "None"}
-    vt_key_used_for_ip = None
+    final = {}
+    sources = {"isp": "None", "country": "None", "detections": "None"}
+    vt_key = None
 
-    result, source, vt_key = query_virustotal(ip)
-    if vt_key:
-        vt_key_used_for_ip = vt_key
-
-    if result:
-        final_result.update(result)
-        source_map.update({k: source for k in result})
+    vt_result, vt_source, vt_key_used = query_virustotal(ip)
+    if vt_result:
+        final.update(vt_result)
+        vt_key = vt_key_used
+        sources.update({k: vt_source for k in vt_result})
     else:
-        # Query AbuseIPDB, DBIP, IPInfo in parallel, take first successful data
         with ThreadPoolExecutor(max_workers=3) as pool:
             futures = {
                 pool.submit(func, ip): name for func, name in [
@@ -216,237 +240,280 @@ def get_ip_info(ip):
                 ]
             }
             for f in as_completed(futures):
-                try:
-                    data, src = f.result()
-                    if data:
-                        for k in ["isp", "country", "detections"]:
-                            if k not in final_result or final_result.get(k) in (None, "N/A"):
-                                final_result[k] = data.get(k)
-                                source_map[k] = src
-                        break
-                except Exception:
-                    continue
+                data, src = f.result()
+                if data:
+                    for k in ["isp", "country", "detections"]:
+                        if not final.get(k):
+                            final[k] = data.get(k)
+                            sources[k] = src
+                    break
 
-    # If any data still missing, use APIVoid as last fallback
     for k in ["isp", "country", "detections"]:
-        if final_result.get(k) in (None, "N/A"):
-            try:
-                result, src = query_apivoid(ip)
-                if result and result.get(k) not in (None, "N/A"):
-                    final_result[k] = result.get(k)
-                    source_map[k] = src
-            except Exception:
-                continue
+        if not final.get(k):
+            data, src = query_apivoid(ip)
+            if data and data.get(k):
+                final[k] = data.get(k)
+                sources[k] = src
 
-    final_result = {
-        "isp": final_result.get("isp") or "N/A",
-        "country": final_result.get("country") or "N/A",
-        "detections": final_result.get("detections") if final_result.get("detections") is not None else 0
-    }
-
-    print(f"[{ip}] Final Sources - ISP: {source_map['isp']}, Country: {source_map['country']}, Detections: {source_map['detections']}")
-
+    print(f"[{ip}] Final Sources - ISP: {sources['isp']}, Country: {sources['country']}, Detections: {sources['detections']}")
     return {
         "ip": ip,
-        "isp": final_result["isp"],
-        "country": final_result["country"],
-        "detections": final_result["detections"],
-        "vt_key_used": mask_key(vt_key_used_for_ip) if vt_key_used_for_ip else None,
-        "summary": f"The IP: {ip} belongs to the ISP: {final_result['isp']} from the country: {final_result['country']} with detection count: {final_result['detections']}."
+        "isp": final.get("isp", "N/A"),
+        "country": final.get("country", "N/A"),
+        "detections": final.get("detections", 0),
+        "vt_key_used": mask_key(vt_key) if vt_key else None,
+        "summary": f"The IP: {ip} belongs to the ISP: {final.get('isp', 'N/A')} from the country: {final.get('country', 'N/A')} with detection count: {final.get('detections', 0)}."
+    }
+
+def lookup_url(url):
+    hostname, resolved_ip = resolve_url_to_ip(url)
+    if not resolved_ip:
+        return {
+            "type": "URL",
+            "query": url,
+            "error": "Could not resolve domain to IP.",
+            "ip": url,
+            "isp": "N/A",
+            "country": "N/A",
+            "detections": 0,
+            "vt_key_used": None,
+            "summary": f"The URL: {url} could not be resolved to an IP address.",
+        }
+
+    vt_data = fetch_virustotal_url_data(url)
+    ip_info = get_ip_info(resolved_ip)
+
+    # ✅ Ensure detection count is 0 if None or missing
+    detections = vt_data.get("detections") or 0
+
+    return {
+        "type": "URL",
+        "query": url,
+        "hostname": hostname,
+        "resolved_ip": resolved_ip,
+        "ip": url,
+        "isp": ip_info.get("isp"),
+        "country": ip_info.get("country"),
+        "detections": detections,
+        "vt_key_used": ip_info.get("vt_key_used"),
+        "summary": f"The URL: {url} resolves to IP: {resolved_ip} and has {detections} detections belonging to ISP: {ip_info.get('isp')} with Country: {ip_info.get('country')}."
     }
 
 
-def is_valid_public_ip(ip):
-    try:
-        ip_obj = ipaddress.ip_address(ip)
-        # Accept public IPs, including reserved TEST-NET ranges
-        # So only exclude private, loopback and unspecified
-        return not (ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_unspecified)
-    except:
-        return False
-
+# ✅ `handle_ip_lookup()` and `/download_excel` + `/` route are included in [next message] due to length...
 @app.route("/get_ip_info", methods=["POST"])
 def handle_ip_lookup():
     start = time.time()
     data = request.json
-    raw_ips = data.get("ips", [])
+    entries = data.get("ips", [])
 
-    # Reset global tracking per request
     global used_services, unused_services, vt_keys_used, vt_keys_success
-    used_services = set()
-    unused_services = set()
-
-    # Validate and deduplicate public IPs, limit to 100
-    filtered_ips = []
-    seen = set()
-    skipped_private_or_invalid = []
-
+    used_services.clear()
+    unused_services.clear()
     vt_keys_used.clear()
     vt_keys_success.clear()
+    exhausted_other_keys.clear()
 
-    for ip in raw_ips:
-        if ip in seen:
+    seen = set()
+    valid_entries = []
+    skipped_invalid = []
+
+    for entry in entries:
+        entry = entry.strip()
+        if entry in seen:
             continue
-        seen.add(ip)
-        if is_valid_public_ip(ip):
-            filtered_ips.append(ip)
+        seen.add(entry)
+
+        if is_valid_public_ip(entry) or is_valid_url(entry):
+            valid_entries.append(entry)
         else:
-            skipped_private_or_invalid.append(ip)
-        if len(filtered_ips) == 100:
+            skipped_invalid.append(entry)
+
+        if len(valid_entries) >= 100:
             break
 
-
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        results = list(executor.map(get_ip_info, filtered_ips))
-    # Track IPs with no useful data
-    no_data_ips = [r["ip"] for r in results if (
-        (not r["isp"] or r["isp"] == "N/A") and
-        (not r["country"] or r["country"] == "N/A")
-        )]
-    table_rows = "".join(
-        f"<tr><td>{r['ip']}</td><td>{r['isp']}</td><td>{r['country']}</td><td>{r['detections']}</td></tr>"
-        for r in results
-    )
+        results = list(executor.map(
+            lambda e: get_ip_info(e) if is_valid_public_ip(e) else lookup_url(e),
+            valid_entries
+        ))
 
-    # Add blank line before each summary except first, to create spacing on web
+    has_url = any(r.get("type") == "URL" for r in results)
+
+    no_data_ips = [r["ip"] for r in results if (
+        (not r.get("isp") or r.get("isp") == "N/A") and
+        (not r.get("country") or r.get("country") == "N/A")
+    )]
+
+    table_rows = ""
+    raw_table = []
+
+    for r in results:
+        ip_or_url = r.get("query", r["ip"])
+        resolved_ip = r.get("resolved_ip") if r.get("type") == "URL" else "-"
+        row_html = f"<tr><td>{ip_or_url}</td><td>{resolved_ip}</td><td>{r['isp']}</td><td>{r['country']}</td><td>{r['detections']}</td></tr>"
+        table_rows += row_html
+        raw_table.append([ip_or_url, resolved_ip, r["isp"], r["country"], r["detections"], r.get("vt_key_used")])
+
     summary_lines = []
     for i, r in enumerate(results):
         if i != 0:
-            summary_lines.append("")  # blank line for spacing
+            summary_lines.append("")
         summary_lines.append(r["summary"])
     summary_text = "\n".join(summary_lines)
 
     elapsed = round(time.time() - start, 2)
-        # Improved summary logging
     unused_services.update({"VT", "AbuseIPDB", "DBIP", "IPINFO", "APIVoid"} - used_services)
-    elapsed = round(time.time() - start, 2)
 
-    # Classify VT keys
-    # Determine which keys were actually used and successful in this request
     vt_keys_success_current = vt_keys_used & vt_keys_success
     vt_keys_exhausted_current = exhausted_vt_keys.copy()
 
-
     print("\n📊 API USAGE SUMMARY")
-    print(f"✅ Data found for {len(filtered_ips)} IP{'s' if len(filtered_ips) != 1 else ''} in {elapsed} seconds.")
+    print(f"✅ Data found for {len(valid_entries)} entries in {elapsed} seconds.")
     print(f"🔧 Services Used     : {', '.join(sorted(used_services)) or 'None'}")
     print(f"⚪ Services Unused   : {', '.join(sorted(unused_services)) or 'None'}")
 
-
-    # VT Key usage summary
     print(f"✅ Successfully Used VT Keys: {len(vt_keys_success_current)}")
     for key in vt_keys_success_current:
         print(f"    {mask_key(key)}")
 
-
-    print(f"❌ Exhausted VT Keys: {len(exhausted_vt_keys)}")
-    for key in exhausted_vt_keys:
+    print(f"❌ Exhausted VT Keys: {len(vt_keys_exhausted_current)}")
+    for key in vt_keys_exhausted_current:
         print(f"    {mask_key(key)}")
-
 
     if exhausted_other_keys:
         print("❌ Exhausted Other Services:", ", ".join(exhausted_other_keys))
-        
+
     if len(vt_keys_exhausted_current) > 10:
         print("⚠️ Warning: More than 10 VT keys are exhausted. Consider rotating or refreshing your keys.")
-    
-    vt_keys_used_current = vt_keys_success | exhausted_vt_keys
-    vt_keys_unused_current = set(VT_KEYS) - vt_keys_used_current
 
+    vt_keys_unused_current = set(VT_KEYS) - (vt_keys_success | exhausted_vt_keys)
     print(f"🟡 Unused VT Keys: {len(vt_keys_unused_current)}")
     for key in vt_keys_unused_current:
         print(f"    {mask_key(key)}")
 
-    # Optional: Masked key info for logging/debug (can be added to response if needed)
-    vt_keys_used_masked = {mask_key(k) for k in vt_keys_success}
-
-    abuse_key_used = mask_key(ABUSEIPDB_KEY) if "AbuseIPDB" in used_services else None
-    dbip_key_used = mask_key(DBIP_KEY) if "DBIP" in used_services else None
-    ipinfo_key_used = mask_key(IPINFO_KEY) if "IPINFO" in used_services else None
-    apivoid_key_used = mask_key(APIVOID_KEY) if "APIVoid" in used_services else None
-
     print("Used API Keys:")
-    if vt_keys_used_masked:
-        print("  VT Keys:", ", ".join(vt_keys_used_masked))
-
-    if abuse_key_used: print("  AbuseIPDB Key:", abuse_key_used)
-    if dbip_key_used: print("  DBIP Key:", dbip_key_used)
-    if ipinfo_key_used: print("  IPInfo Key:", ipinfo_key_used)
-    if apivoid_key_used: print("  APIVoid Key:", apivoid_key_used)
-
+    if vt_keys_success_current:
+        print("  VT Keys:", ", ".join(mask_key(k) for k in vt_keys_success_current))
+    if "AbuseIPDB" in used_services:
+        print("  AbuseIPDB Key:", mask_key(ABUSEIPDB_KEY))
+    if "DBIP" in used_services:
+        print("  DBIP Key:", mask_key(DBIP_KEY))
+    if "IPINFO" in used_services:
+        print("  IPInfo Key:", mask_key(IPINFO_KEY))
+    if "APIVoid" in used_services:
+        print("  APIVoid Key:", mask_key(APIVOID_KEY))
     print("----------------------------\n")
-  
+
+    column_label = "IP/URL" if has_url else "IP"
 
     return jsonify({
-    "summary": summary_text,
-    "table": table_rows,
-    "raw_table": [[r['ip'], r['isp'], r['country'], r['detections'], r['vt_key_used']] for r in results],
-    "no_data_ips": no_data_ips,
-    "per_ip_vt_keys": {r['ip']: r['vt_key_used'] for r in results}
-})
+        "summary": summary_text,
+        "table": table_rows,
+        "raw_table": raw_table,
+        "no_data_ips": no_data_ips,
+        "per_ip_vt_keys": {r["ip"]: r.get("vt_key_used") for r in results},
+        "has_url": has_url,
+        "column_label": column_label
+    })
 
+from flask import request, send_file
+from io import BytesIO
+from openpyxl import Workbook
+from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 
 @app.route("/download_excel", methods=["POST"])
 def download_excel():
-    data = request.json
+    import io
+    from flask import send_file
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    data = request.get_json()
     table_data = data.get("table_data", [])
     summary = data.get("summary", "")
+    column_label = data.get("column_label", "IP")
+
+    print("Incoming /download_excel payload:")
+    print("Summary:", summary)
+    print("Column label:", column_label)
+    if table_data:
+        print("First row of table_data:", table_data[0])
 
     wb = Workbook()
-    ws = wb.active
-    ws.title = "IP Info"
 
-    headers = ["IP", "ISP", "Country", "Detections"]
-    ws.append(headers)
+    # ====== IP Data Sheet ======
+    ws_data = wb.active
+    ws_data.title = "IP Data"
 
-    # Bold headers
-    header_font = Font(bold=True)
-    for cell in ws[1]:
-        cell.font = header_font
+    # Determine if resolved IP column is needed
+    has_resolved_ip = any(len(row) > 5 and row[1] != "-" for row in table_data)
 
+    # Define headers
+    if has_resolved_ip:
+        headers = [column_label, "Resolved IP", "ISP", "Country", "Detection Count"]
+    else:
+        headers = [column_label, "ISP", "Country", "Detection Count"]
+
+    # Add header row
+    ws_data.append(headers)
+
+    # Set style for headers
+    for cell in ws_data[1]:
+        cell.font = Font(bold=True)
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+
+    # Border style
+    border_style = Border(
+        left=Side(border_style="thin", color="000000"),
+        right=Side(border_style="thin", color="000000"),
+        top=Side(border_style="thin", color="000000"),
+        bottom=Side(border_style="thin", color="000000"),
+    )
+
+    # Add data rows
     for row in table_data:
-        ws.append(row[:4])  # Only keep IP, ISP, Country, Detections
+        if has_resolved_ip:
+            row_data = row[:5]  # [IP/URL, Resolved IP, ISP, Country, Detections]
+        else:
+            row_data = [row[0], row[2], row[3], row[4]]
+        ws_data.append(row_data)
 
-
-    # Apply border + alignment + autofit for IP Info sheet
-    thin_border = Border(left=Side(style="thin"), right=Side(style="thin"),
-                         top=Side(style="thin"), bottom=Side(style="thin"))
-    for row in ws.iter_rows():
+    # Apply formatting and borders to all cells
+    for row in ws_data.iter_rows(min_row=1, max_row=ws_data.max_row, max_col=ws_data.max_column):
         for cell in row:
             cell.alignment = Alignment(horizontal="center", vertical="center")
-            cell.border = thin_border
+            cell.border = border_style
 
-    for col in ws.columns:
-        max_length = max(len(str(cell.value or "")) for cell in col)
-        ws.column_dimensions[col[0].column_letter].width = max_length + 4
+    # Auto-fit columns
+    for col in ws_data.columns:
+        max_len = max(len(str(cell.value or "")) for cell in col)
+        ws_data.column_dimensions[get_column_letter(col[0].column)].width = max_len + 5
 
-    # Summary sheet
+    # ====== Summary Sheet ======
     ws_summary = wb.create_sheet("Summary")
-    ws_summary.append(["Summary"])
+    ws_summary["A1"] = "Summary"
+    ws_summary["A1"].font = Font(bold=True)
 
-    # Bold header on summary sheet
-    for cell in ws_summary[1]:
-        cell.font = header_font
+    for i, line in enumerate(summary.split("\n"), start=2):
+        ws_summary[f"A{i}"] = line
 
-    # Add summary lines with spacing (blank lines)
-    summary_lines = summary.split("\n")
-    for line in summary_lines:
-        ws_summary.append([line])
+    max_len = max((len(str(cell.value or "")) for cell in ws_summary["A"] if cell.value), default=10)
+    ws_summary.column_dimensions["A"].width = max_len + 5
 
-    # Apply alignment + autofit for Summary sheet
-    for row in ws_summary.iter_rows():
-        for cell in row:
-            cell.alignment = Alignment(horizontal="center", vertical="center")
+    # ====== Return Excel file ======
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
 
-    for col in ws_summary.columns:
-        max_length = max(len(str(cell.value or "")) for cell in col)
-        ws_summary.column_dimensions[col[0].column_letter].width = max_length + 4
+    return send_file(
+        output,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name="IP_Info.xlsx"
+    )
 
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
-    wb.save(tmp.name)
-    tmp.seek(0)
-
-    return send_file(tmp.name, as_attachment=True, download_name="IP_Info.xlsx")
 
 @app.route("/")
 def index():
