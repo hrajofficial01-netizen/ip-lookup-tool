@@ -20,15 +20,25 @@ function isPrivateIP(ip) {
   );
 }
 
-// Basic URL validation
+// Improved URL validation to avoid malformed IPs or short strings
 function isValidURL(str) {
   try {
     const url = new URL(str.startsWith("http") ? str : `http://${str}`);
-    return !!url.hostname;
+    const hostname = url.hostname;
+
+    // Reject malformed or incomplete IP-like hostnames (e.g. "12.23.4")
+    if (/^\d{1,3}(\.\d{1,3}){1,2}$/.test(hostname)) return false;
+
+    // Require at least one dot and valid TLD-like pattern
+    if (!hostname.includes(".") || !/[a-zA-Z]{2,}$/.test(hostname.split(".").pop())) return false;
+
+    return true;
   } catch {
     return false;
   }
 }
+
+
 
 // Main fetch function
 async function fetchIPData() {
@@ -89,16 +99,16 @@ async function fetchIPData() {
   }
 
   if (skippedInvalid.length > 0) {
-    messages.push(`⚠️ Skipped invalid entries: ${skippedInvalid.join(", ")}`);
+    messages.push(`⚠️ ${skippedInvalid.length} Skipped invalid entries: ${skippedInvalid.join(", ")}`);
   }
 
   if (duplicates.length > 0) {
-    messages.push(`⚠️ Removed duplicates: ${duplicates.join(", ")}`);
+    messages.push(`⚠️ ${duplicates.length} Removed duplicates: ${duplicates.join(", ")}`);
   }
 
   const privateIPs = rawEntries.filter(ip => isValidIP(ip) && isPrivateIP(ip));
   if (privateIPs.length > 0) {
-    messages.push(`⚠️ Filtered private/reserved IPs: ${privateIPs.join(", ")}`);
+    messages.push(`⚠️ ${privateIPs.length} Filtered private/reserved IPs: ${privateIPs.join(", ")}`);
   }
 
   if (validEntries.length > 100) {
@@ -123,6 +133,7 @@ async function fetchIPData() {
     }
 
     const data = await response.json();
+    console.log("📌 Column label:", data.column_label);
     const processedCount = data.raw_table?.length || 0;
 
     if (Array.isArray(data.no_data_ips) && data.no_data_ips.length > 0) {
@@ -131,20 +142,32 @@ async function fetchIPData() {
       messages.push(`⚠️ ${data.no_data_ips.length} entries returned no data: ${displayList}${more}`);
     }
 
-    messages.unshift(`✅ Data found for ${processedCount} entr${processedCount !== 1 ? 'ies' : 'y'}.`);
-
+  messages.unshift(`✅ Data found for ${processedCount} entr${processedCount !== 1 ? 'ies' : 'y'}.`);
+    
     summaryDiv.innerText = data.summary;
 
-    const hasResolvedIP = data.column_label === "IP/URL";
-
-    const tableHead = document.querySelector("#tableSection thead");
+   const tableHead = document.getElementById("tableHead");
     tableHead.innerHTML = "";
     const headerRow = document.createElement("tr");
-    const headerTitles = hasResolvedIP
-      ? ["IP/URL", "Resolved IP", "ISP", "Country", "Detections"]
-      : ["IP/URL", "ISP", "Country", "Detections"];
 
-    for (const title of headerTitles) {
+    let headerTitles = [];
+    let useResolvedIP = false;
+
+if (data.column_label === "URL") {
+  // Only URLs provided
+  headerTitles = ["URL", "Resolved IP", "ISP", "Country", "Detections"];
+  useResolvedIP = true;
+} else if (data.column_label === "IP") {
+  // Only IPs provided
+  headerTitles = ["IP", "ISP", "Country", "Detections"];
+  useResolvedIP = false;
+} else {
+  // Mixed IPs + URLs
+  headerTitles = ["IP/URL", "Resolved IP", "ISP", "Country", "Detections"];
+  useResolvedIP = true;
+}
+
+   for (const title of headerTitles) {
       const th = document.createElement("th");
       th.innerText = title;
       th.className = "border px-3 py-2 text-center";
@@ -152,13 +175,29 @@ async function fetchIPData() {
     }
     tableHead.appendChild(headerRow);
 
-    tableBody.innerHTML = "";
-    for (const row of data.raw_table || []) {
-      const tr = document.createElement("tr");
-      const cells = hasResolvedIP
-        ? row.slice(0, 5)
-        : [row[0], row[2], row[3], row[4]];
+        tableBody.innerHTML = "";
+      for (const row of data.raw_table || []) {
+        const [inputValue, resolvedIP, isp, country, detections] = row;
 
+      let cells = [];
+
+      if (data.column_label === "IP") {
+        // Only IPs → no Resolved IP column
+        cells = [inputValue, isp, country, detections];
+      } else if (data.column_label === "URL") {
+        // Only URLs → show Resolved IP
+        cells = [inputValue, resolvedIP || "-", isp, country, detections];
+      } else {
+        // Mixed input → if resolvedIP is different, it's a URL
+        const isURL = resolvedIP && resolvedIP !== "-" && resolvedIP !== inputValue;
+        if (isURL) {
+          cells = [inputValue, resolvedIP, isp, country, detections];
+        } else {
+          cells = [inputValue, "-", isp, country, detections];
+        }
+      }
+
+      const tr = document.createElement("tr");
       for (const cell of cells) {
         const td = document.createElement("td");
         td.innerText = cell;

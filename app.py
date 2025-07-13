@@ -213,12 +213,38 @@ def is_valid_public_ip(ip):
     except:
         return False
 
+import re
+from urllib.parse import urlparse
+
 def is_valid_url(url):
     try:
         parsed = urlparse(url if url.startswith("http") else f"http://{url}")
-        return bool(parsed.hostname)
+        hostname = parsed.hostname
+
+        if not hostname or '.' not in hostname:
+            return False
+
+        # Reject short numeric-like hostnames (e.g., "12.23.4")
+        if re.fullmatch(r"\d{1,3}(\.\d{1,3}){1,2}", hostname):
+            return False
+
+        # Check TLD
+        if not re.search(r"\.[a-zA-Z]{2,}$", hostname):
+            return False
+
+        return True
     except:
         return False
+
+import re
+
+def is_valid_ip(ip):
+    try:
+        ipaddress.ip_address(ip)
+        return True
+    except ValueError:
+        return False
+
 
 def get_ip_info(ip):
     final = {}
@@ -372,11 +398,9 @@ def handle_ip_lookup():
     print(f"✅ Data found for {len(valid_entries)} entries in {elapsed} seconds.")
     print(f"🔧 Services Used     : {', '.join(sorted(used_services)) or 'None'}")
     print(f"⚪ Services Unused   : {', '.join(sorted(unused_services)) or 'None'}")
-
     print(f"✅ Successfully Used VT Keys: {len(vt_keys_success_current)}")
     for key in vt_keys_success_current:
         print(f"    {mask_key(key)}")
-
     print(f"❌ Exhausted VT Keys: {len(vt_keys_exhausted_current)}")
     for key in vt_keys_exhausted_current:
         print(f"    {mask_key(key)}")
@@ -405,7 +429,22 @@ def handle_ip_lookup():
         print("  APIVoid Key:", mask_key(APIVOID_KEY))
     print("----------------------------\n")
 
-    column_label = "IP/URL" if has_url else "IP"
+    # ✅ FIX: accurately determine column_label based on original input types
+    entry_types = set()
+    for e in entries:
+        if is_valid_ip(e):
+            entry_types.add("IP")
+        elif is_valid_url(e):
+            entry_types.add("URL")
+
+    if entry_types == {"IP"}:
+        column_label = "IP"
+    elif entry_types == {"URL"}:
+        column_label = "URL"
+    else:
+        column_label = "IP/URL"
+
+    print("Final column_label sent to frontend:", column_label)
 
     return jsonify({
         "summary": summary_text,
@@ -461,10 +500,22 @@ def download_excel():
 
     # Body
     for row in table_data:
-        if has_resolved_ip:
-            ws_table.append(row[:5])
+        ip_or_url = row[0]
+        resolved_ip = row[1]
+        isp = row[2]
+        country = row[3]
+        detections = row[4]
+
+        if resolved_ip and resolved_ip not in ("-", "", "None") and resolved_ip != ip_or_url:
+            display_value = f"{ip_or_url}"
         else:
-            ws_table.append([row[0], row[2], row[3], row[4]])
+            display_value = ip_or_url
+
+        if has_resolved_ip:
+            ws_table.append([display_value, resolved_ip, isp, country, detections])
+        else:
+            ws_table.append([display_value, isp, country, detections])
+
 
     # Formatting styles
     bold_font = Font(bold=True)
