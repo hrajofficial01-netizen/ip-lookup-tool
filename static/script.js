@@ -133,7 +133,6 @@ async function fetchIPData() {
     }
 
     const data = await response.json();
-    console.log("📌 Column label:", data.column_label);
     const processedCount = data.raw_table?.length || 0;
 
     if (Array.isArray(data.no_data_ips) && data.no_data_ips.length > 0) {

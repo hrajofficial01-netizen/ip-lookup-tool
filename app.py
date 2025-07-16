@@ -66,31 +66,47 @@ def get_next_vt_key():
                 return key
         return None
 
+import base64
+
+import base64
+
 def fetch_virustotal_url_data(url):
-    result = {"detections": None, "services_used": []}
+    result = {"detections": None, "services_used": [], "categories": [], "vt_key_used": None}
     key = get_next_vt_key()
     if not key:
         return result
+
     headers = {"x-apikey": key}
     try:
+        # Step 1: Submit the URL
         scan_url = "https://www.virustotal.com/api/v3/urls"
-        resp = requests.post(scan_url, headers=headers, data={"url": url})
-        if resp.status_code != 200:
+        post_resp = requests.post(scan_url, headers=headers, data={"url": url}, timeout=10)
+        if post_resp.status_code != 200:
             exhausted_vt_keys.add(key)
             return result
-        scan_id = resp.json()['data']['id']
-        report_url = f"https://www.virustotal.com/api/v3/urls/{scan_id}"
-        resp = requests.get(report_url, headers=headers)
-        if resp.status_code != 200:
+
+        # Step 2: Encode URL for lookup
+        encoded_url = base64.urlsafe_b64encode(url.encode()).decode().rstrip("=")
+        report_url = f"https://www.virustotal.com/api/v3/urls/{encoded_url}"
+        get_resp = requests.get(report_url, headers=headers, timeout=10)
+        if get_resp.status_code != 200:
             exhausted_vt_keys.add(key)
             return result
-        data = resp.json().get('data', {}).get('attributes', {})
-        detections = data.get('last_analysis_stats', {}).get('malicious', 0)
-        result['detections'] = detections
+
+        # Step 3: Extract data and mark key as successful
+        data = get_resp.json().get('data', {}).get('attributes', {})
+        result['detections'] = data.get('last_analysis_stats', {}).get('malicious', 0)
+        result['categories'] = list(data.get('categories', {}).values())
         result['services_used'].append("VirusTotal URL")
+        result['vt_key_used'] = key
+
+        vt_keys_used.add(key)
+        vt_keys_success.add(key)  # ✅ Add this to track success
+
     except Exception as e:
         print(f"[ERROR] VT URL scan failed: {e}")
     return result
+
 
 def query_virustotal(ip):
     used_services.add("VT")
@@ -194,18 +210,6 @@ def query_apivoid(ip):
     except Exception as e:
         return {}, f"APIVOID ERROR: {str(e)}"
 
-def resolve_url_to_ip(url):
-    try:
-        if not url.startswith(('http://', 'https://')):
-            url = 'http://' + url
-        hostname = urlparse(url).hostname
-        if hostname:
-            resolved_ip = socket.gethostbyname(hostname)
-            return hostname, resolved_ip
-    except Exception as e:
-        print(f"[ERROR] Could not resolve {url} - {e}")
-    return None, None
-
 def is_valid_public_ip(ip):
     try:
         ip_obj = ipaddress.ip_address(ip)
@@ -292,39 +296,28 @@ def get_ip_info(ip):
     }
 
 def lookup_url(url):
-    hostname, resolved_ip = resolve_url_to_ip(url)
-    if not resolved_ip:
-        return {
-            "type": "URL",
-            "query": url,
-            "error": "Could not resolve domain to IP.",
-            "ip": url,
-            "isp": "N/A",
-            "country": "N/A",
-            "detections": 0,
-            "vt_key_used": None,
-            "summary": f"The URL: {url} could not be resolved to an IP address.",
-        }
-
     vt_data = fetch_virustotal_url_data(url)
-    ip_info = get_ip_info(resolved_ip)
-
-    # ✅ Ensure detection count is 0 if None or missing
+    used_services.add("VT")
     detections = vt_data.get("detections") or 0
+    categories = vt_data.get("categories", [])
+    vt_key_used = vt_data.get("vt_key_used")
 
     return {
         "type": "URL",
         "query": url,
-        "hostname": hostname,
-        "resolved_ip": resolved_ip,
+        "hostname": urlparse(url if url.startswith("http") else f"http://{url}").hostname,
+        "resolved_ip": "-",  # No IP resolution anymore
         "ip": url,
-        "isp": ip_info.get("isp"),
-        "country": ip_info.get("country"),
+        "isp": "N/A",        # Skipping ISP/Country enrichment
+        "country": "N/A",
         "detections": detections,
-        "vt_key_used": ip_info.get("vt_key_used"),
-        "summary": f"The URL:  {url}  resolves to IP:  {resolved_ip}  and has  {detections}  detections belonging to ISP:  {ip_info.get('isp')}  with Country:  {ip_info.get('country')} ."
+        "vt_key_used": mask_key(vt_key_used) if vt_key_used else None,
+        
+        "summary": (
+            f"The URL: {url} was found in VirusTotal with {detections} malicious detections."
+            + (f" Categories: {', '.join(categories)}." if categories else "")
+        )
     }
-
 
 # ✅ `handle_ip_lookup()` and `/download_excel` + `/` route are included in [next message] due to length...
 @app.route("/get_ip_info", methods=["POST"])
@@ -366,10 +359,20 @@ def handle_ip_lookup():
 
     has_url = any(r.get("type") == "URL" for r in results)
 
-    no_data_ips = [r["ip"] for r in results if (
-        (not r.get("isp") or r.get("isp") == "N/A") and
-        (not r.get("country") or r.get("country") == "N/A")
-    )]
+    no_data_ips = []
+    for r in results:
+        is_url = r.get("type") == "URL"
+        has_detections = r.get("detections", 0) != 0
+        isp = r.get("isp", "")
+        country = r.get("country", "")
+
+        if is_url:
+            if not has_detections and (not isp or isp == "N/A") and (not country or country == "N/A"):
+                no_data_ips.append(r["ip"])
+        else:
+            if (not isp or isp == "N/A") and (not country or country == "N/A"):
+                no_data_ips.append(r["ip"])
+
 
     table_rows = ""
     raw_table = []
