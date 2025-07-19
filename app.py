@@ -37,6 +37,7 @@ vt_keys_used = set()
 vt_keys_success = set()
 
 MAX_WORKERS = 100
+
 used_services = set()
 unused_services = set()
 country_cache = {}
@@ -108,35 +109,43 @@ def fetch_virustotal_url_data(url):
     return result
 
 
+# -------------------------------
+# VirusTotal IP Query with Key Rotation
+# -------------------------------
 def query_virustotal(ip):
-    used_services.add("VT")
     tried = set()
     while True:
         key = get_next_vt_key()
         if not key or key in tried:
             break
+        
         tried.add(key)
+    
         headers = {"x-apikey": key}
         vt_keys_used.add(key)
         try:
             resp = requests.get(f"https://www.virustotal.com/api/v3/ip_addresses/{ip}", headers=headers, timeout=10)
-            if resp.status_code == 401:
+            if resp.status_code in (401, 403):
                 exhausted_vt_keys.add(key)
                 continue
-            elif resp.status_code != 200:
-                return {}, "VTError", key
-            data = resp.json()
+            if resp.status_code != 200:
+                return {}, f"VTError {resp.status_code}", key
+            data = resp.json().get("data", {}).get("attributes", {})
             vt_keys_success.add(key)
-            attr = data.get("data", {}).get("attributes", {})
             return {
-                "isp": attr.get("as_owner"),
-                "country": get_country_name(attr.get("country")),
-                "detections": attr.get("last_analysis_stats", {}).get("malicious", 0)
+                "isp": data.get("as_owner"),
+                "country": get_country_name(data.get("country")),
+                "detections": data.get("last_analysis_stats", {}).get("malicious", 0)
             }, "VT", key
         except Exception as e:
-            return {}, f"VT ERROR: {str(e)}", key
+            exhausted_vt_keys.add(key)
+            return {}, f"VT Exception: {str(e)}", key
     return {}, "NoVTKeyAvailable", None
 
+
+# -------------------------------
+# AbuseIPDB Query with Rate-Limit Handling
+# -------------------------------
 def query_abuseipdb(ip):
     if not ABUSEIPDB_KEY:
         return {}, "NoKey"
@@ -146,6 +155,8 @@ def query_abuseipdb(ip):
         if resp.status_code == 429:
             exhausted_other_keys.add("AbuseIPDB")
             return {}, "RateLimit"
+        if resp.status_code != 200:
+            return {}, f"AbuseIPDB Error {resp.status_code}"
         data = resp.json().get("data", {})
         used_services.add("AbuseIPDB")
         return {
@@ -154,32 +165,39 @@ def query_abuseipdb(ip):
             "detections": data.get("totalReports", 0)
         }, "AbuseIPDB"
     except Exception as e:
-        return {}, f"ABUSEIPDB ERROR: {str(e)}"
+        return {}, f"AbuseIPDB Exception: {str(e)}"
 
+
+# -------------------------------
+# DB-IP Query (No Rate-Limit)
+# -------------------------------
 def query_dbip(ip):
     if not DBIP_KEY:
         return {}, "NoKey"
     try:
-        resp = requests.get(f"https://api.db-ip.com/v2/{DBIP_KEY}/{ip}/json", timeout=10)
+        resp = requests.get(f"https://api.db-ip.com/v2/{DBIP_KEY}/{ip}/asn.json", timeout=10)
         if resp.status_code != 200:
-            return {}, "DBIP Error"
+            return {}, f"DBIP Error {resp.status_code}"
         data = resp.json()
         used_services.add("DBIP")
         return {
-            "isp": data.get("organization"),
+            "isp": data.get("organisation"),
             "country": get_country_name(data.get("countryCode")),
             "detections": 0
         }, "DBIP"
     except Exception as e:
-        return {}, f"DBIP ERROR: {str(e)}"
+        return {}, f"DBIP Exception: {str(e)}"
 
+
+# -------------------------------
+# IPInfo Query (No Rate-Limit)
+# -------------------------------
 def query_ipinfo(ip):
     try:
-        url = f"https://ipinfo.io/{ip}/json"
         headers = {"Authorization": f"Bearer {IPINFO_KEY}"} if IPINFO_KEY else {}
-        resp = requests.get(url, headers=headers, timeout=10)
+        resp = requests.get(f"https://ipinfo.io/{ip}/json", headers=headers, timeout=10)
         if resp.status_code != 200:
-            return {}, "IPINFO Error"
+            return {}, f"IPINFO Error {resp.status_code}"
         data = resp.json()
         used_services.add("IPINFO")
         return {
@@ -188,8 +206,12 @@ def query_ipinfo(ip):
             "detections": 0
         }, "IPINFO"
     except Exception as e:
-        return {}, f"IPINFO ERROR: {str(e)}"
+        return {}, f"IPINFO Exception: {str(e)}"
 
+
+# -------------------------------
+# APIVoid Query with Rate-Limit Handling
+# -------------------------------
 def query_apivoid(ip):
     if not APIVOID_KEY:
         return {}, "NoKey"
@@ -199,7 +221,7 @@ def query_apivoid(ip):
             exhausted_other_keys.add("APIVoid")
             return {}, "RateLimit"
         if resp.status_code != 200:
-            return {}, "APIVoid Error"
+            return {}, f"APIVoid Error {resp.status_code}"
         data = resp.json().get("data", {}).get("report", {})
         used_services.add("APIVoid")
         return {
@@ -208,8 +230,8 @@ def query_apivoid(ip):
             "detections": data.get("blacklists", {}).get("detections", 0)
         }, "APIVoid"
     except Exception as e:
-        return {}, f"APIVOID ERROR: {str(e)}"
-
+        return {}, f"APIVoid Exception: {str(e)}"
+        
 def is_valid_public_ip(ip):
     try:
         ip_obj = ipaddress.ip_address(ip)
@@ -249,51 +271,167 @@ def is_valid_ip(ip):
     except ValueError:
         return False
 
-
 def get_ip_info(ip):
-    final = {}
-    sources = {"isp": "None", "country": "None", "detections": "None"}
-    vt_key = None
-
-    vt_result, vt_source, vt_key_used = query_virustotal(ip)
-    if vt_result:
-        final.update(vt_result)
-        vt_key = vt_key_used
-        sources.update({k: vt_source for k in vt_result})
-    else:
-        with ThreadPoolExecutor(max_workers=3) as pool:
-            futures = {
-                pool.submit(func, ip): name for func, name in [
-                    (query_abuseipdb, "AbuseIPDB"),
-                    (query_dbip, "DBIP"),
-                    (query_ipinfo, "IPINFO")
-                ]
-            }
-            for f in as_completed(futures):
-                data, src = f.result()
-                if data:
-                    for k in ["isp", "country", "detections"]:
-                        if not final.get(k):
-                            final[k] = data.get(k)
-                            sources[k] = src
-                    break
-
-    for k in ["isp", "country", "detections"]:
-        if not final.get(k):
-            data, src = query_apivoid(ip)
-            if data and data.get(k):
-                final[k] = data.get(k)
-                sources[k] = src
-
-    print(f"[{ip}] Final Sources - ISP: {sources['isp']}, Country: {sources['country']}, Detections: {sources['detections']}")
-    return {
+    ip_info = {
         "ip": ip,
-        "isp": final.get("isp", "N/A"),
-        "country": final.get("country", "N/A"),
-        "detections": final.get("detections", 0),
-        "vt_key_used": mask_key(vt_key) if vt_key else None,
-        "summary": f"The IP: {ip} belongs to the ISP: {final.get('isp', 'N/A')} from the country: {final.get('country', 'N/A')} with detection count: {final.get('detections', 0)}."
+        "asn": None,
+        "isp": None,
+        "country": None,
+        "used_service": None,
+        "used_key": None,
+        "status_codes": {},
+        "detections": 0  # ✅ Always present
     }
+
+    # ✅ 1. VirusTotal First (All Keys)
+    for _ in range(len(VT_KEYS)):
+        vt_key = get_next_vt_key()
+        if not vt_key:
+            break
+        used_services.add("VT")  # ✅ THIS LINE IS MISSING
+        headers = {"x-apikey": vt_key}
+        try:
+            resp = requests.get(f"https://www.virustotal.com/api/v3/ip_addresses/{ip}", headers=headers, timeout=10)
+            ip_info["status_codes"]["VirusTotal"] = resp.status_code
+            vt_keys_used.add(vt_key)
+
+            if resp.status_code == 200:
+                data = resp.json().get("data", {}).get("attributes", {})
+                isp = data.get("as_owner")
+                country = get_country_name(data.get("country"))
+                asn = data.get("asn")
+                detections = data.get("last_analysis_stats", {}).get("malicious", 0)
+
+                if isp or country:
+                    ip_info.update({
+                        "asn": asn,
+                        "isp": isp,
+                        "country": country,
+                        "detections": detections,
+                        "used_service": "VirusTotal",
+                        "used_key": vt_key
+                    })
+                    vt_keys_success.add(vt_key)
+                    break  # ✅ Found valid data, stop trying VT
+            elif resp.status_code in (401, 403):
+                exhausted_vt_keys.add(vt_key)
+        except Exception:
+            ip_info["status_codes"]["VirusTotal"] = "Error"
+            exhausted_vt_keys.add(vt_key)
+
+    # ✅ 2. AbuseIPDB Fallback
+    if not ip_info["isp"] and ABUSEIPDB_KEY:
+        try:
+            headers = {"Key": ABUSEIPDB_KEY, "Accept": "application/json"}
+            resp = requests.get(f"https://api.abuseipdb.com/api/v2/check?ipAddress={ip}", headers=headers, timeout=10)
+            ip_info["status_codes"]["AbuseIPDB"] = resp.status_code
+
+            if resp.status_code == 200:
+                data = resp.json().get("data", {})
+                isp = data.get("isp")
+                country = get_country_name(data.get("countryCode"))
+                asn = data.get("asn")
+                detections = data.get("totalReports", 0)
+                if isp or country:
+                    ip_info.update({
+                        "asn": asn,
+                        "isp": isp,
+                        "country": country,
+                        "detections": detections,
+                        "used_service": "AbuseIPDB",
+                        "used_key": ABUSEIPDB_KEY
+                    })
+                    used_services.add("AbuseIPDB")
+            elif resp.status_code == 429:
+                exhausted_other_keys.add("AbuseIPDB")
+        except Exception:
+            ip_info["status_codes"]["AbuseIPDB"] = "Error"
+
+    # ✅ 3. DB-IP Fallback
+    if not ip_info["isp"] and DBIP_KEY:
+        try:
+            resp = requests.get(f"https://api.db-ip.com/v2/{DBIP_KEY}/{ip}/asn.json", timeout=10)
+            ip_info["status_codes"]["DBIP"] = resp.status_code
+
+            if resp.status_code == 200:
+                data = resp.json()
+                isp = data.get("organisation")
+                country = get_country_name(data.get("countryCode"))
+                asn = data.get("asn")
+                if isp or country:
+                    ip_info.update({
+                        "asn": asn,
+                        "isp": isp,
+                        "country": country,
+                        "detections": 0,
+                        "used_service": "DB-IP",
+                        "used_key": DBIP_KEY
+                    })
+                    used_services.add("DBIP")
+        except Exception:
+            ip_info["status_codes"]["DBIP"] = "Error"
+
+    # ✅ 4. IPInfo Fallback
+    if not ip_info["isp"] and IPINFO_KEY:
+        try:
+            resp = requests.get(f"https://ipinfo.io/{ip}/json?token={IPINFO_KEY}", timeout=10)
+            ip_info["status_codes"]["IPINFO"] = resp.status_code
+
+            if resp.status_code == 200:
+                data = resp.json()
+                isp = data.get("org")
+                country = get_country_name(data.get("country"))
+                if isp or country:
+                    ip_info.update({
+                        "asn": isp,  # IPInfo gives ASN inside "org"
+                        "isp": isp,
+                        "country": country,
+                        "detections": 0,
+                        "used_service": "IPInfo",
+                        "used_key": IPINFO_KEY
+                    })
+                    used_services.add("IPINFO")
+        except Exception:
+            ip_info["status_codes"]["IPINFO"] = "Error"
+
+    # ✅ 5. APIVoid Fallback
+    if not ip_info["isp"] and APIVOID_KEY:
+        try:
+            resp = requests.get(f"https://endpoint.apivoid.com/iprep/v1/pay-as-you-go/?key={APIVOID_KEY}&ip={ip}", timeout=10)
+            ip_info["status_codes"]["APIVoid"] = resp.status_code
+
+            if resp.status_code == 200:
+                data = resp.json().get("data", {}).get("report", {})
+                isp = data.get("network", {}).get("organization")
+                country = get_country_name(data.get("information", {}).get("country_code"))
+                detections = data.get("blacklists", {}).get("detections", 0)
+                if isp or country:
+                    ip_info.update({
+                        "asn": None,
+                        "isp": isp,
+                        "country": country,
+                        "detections": detections,
+                        "used_service": "APIVoid",
+                        "used_key": APIVOID_KEY
+                    })
+                    used_services.add("APIVoid")
+            elif resp.status_code == 429:
+                exhausted_other_keys.add("APIVoid")
+        except Exception:
+            ip_info["status_codes"]["APIVoid"] = "Error"
+
+    # ✅ Final Safety Check: ensure 'detections' present
+    ip_info["detections"] = ip_info.get("detections", 0)
+
+    # ✅ Always add summary
+    ip_info["summary"] = (
+        f"The IP: {ip_info['ip']} was enriched using {ip_info['used_service'] or 'No Service'}."
+        f" ISP: {ip_info['isp'] or 'N/A'}, Country: {ip_info['country'] or 'N/A'},"
+        f" Detections: {ip_info['detections']}"
+    )
+
+    return ip_info
+
 
 def lookup_url(url):
     vt_data = fetch_virustotal_url_data(url)
@@ -430,6 +568,17 @@ def handle_ip_lookup():
         print("  IPInfo Key:", mask_key(IPINFO_KEY))
     if "APIVoid" in used_services:
         print("  APIVoid Key:", mask_key(APIVOID_KEY))
+    
+    # ✅ Add this right after it:
+    print("\n📋 Per Entry Service Status Codes:")
+    for r in results:
+        ip_entry = r.get("ip") or r.get("query")
+        if not ip_entry:
+            continue
+        print(f"\n[{ip_entry}] Final Sources - ISP: {r.get('isp')}, Country: {r.get('country')}, Detections: {r.get('detections')}")
+        status_codes = r.get("status_codes", {})
+        for service, code in status_codes.items():
+            print(f"  {service} ➔ Status Code: {code}")
     print("----------------------------\n")
 
     # ✅ FIX: accurately determine column_label based on original input types
@@ -454,7 +603,14 @@ def handle_ip_lookup():
         "table": table_rows,
         "raw_table": raw_table,
         "no_data_ips": no_data_ips,
-        "per_ip_vt_keys": {r["ip"]: r.get("vt_key_used") for r in results},
+        "per_ip_vt_keys": {
+            r["ip"]: {
+                "vt_key_used": r.get("vt_key_used"),
+                "used_service": r.get("used_service"),
+                "status_codes": r.get("status_codes", {})
+            }
+            for r in results if "ip" in r
+        },
         "has_url": has_url,
         "column_label": column_label
     })

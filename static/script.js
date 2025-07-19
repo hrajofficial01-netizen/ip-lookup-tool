@@ -138,7 +138,7 @@ async function fetchIPData() {
     if (Array.isArray(data.no_data_ips) && data.no_data_ips.length > 0) {
       const displayList = data.no_data_ips.slice(0, 5).join(", ");
       const more = data.no_data_ips.length > 5 ? ` and ${data.no_data_ips.length - 5} more...` : "";
-      messages.push(`⚠️ ${data.no_data_ips.length} entries returned no data: ${displayList}${more}`);
+      messages.push(`⚠️ ${data.no_data_ips.length} entr${data.no_data_ips.length !== 1 ? 'ies' : 'y'} returned no fields: ${displayList}${more}`);
     }
 
   messages.unshift(`✅ Data found for ${processedCount} entr${processedCount !== 1 ? 'ies' : 'y'}.`);
