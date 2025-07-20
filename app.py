@@ -425,9 +425,7 @@ def get_ip_info(ip):
 
     # ✅ Always add summary
     ip_info["summary"] = (
-        f"The IP: {ip_info['ip']} was enriched using {ip_info['used_service'] or 'No Service'}."
-        f" ISP: {ip_info['isp'] or 'N/A'}, Country: {ip_info['country'] or 'N/A'},"
-        f" Detections: {ip_info['detections']}"
+        f"The IP: {ip_info['ip']} belongs to ISP: {ip_info['isp'] or 'N/A'}, from Country: {ip_info['country'] or 'N/A'}, with Detection count: {ip_info['detections']}"
     )
 
     return ip_info
