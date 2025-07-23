@@ -140,8 +140,10 @@ async function fetchIPData() {
       const more = data.no_data_ips.length > 5 ? ` and ${data.no_data_ips.length - 5} more...` : "";
       messages.push(`⚠️ ${data.no_data_ips.length} entr${data.no_data_ips.length !== 1 ? 'ies' : 'y'} returned no fields: ${displayList}${more}`);
     }
-
-  messages.unshift(`✅ Data found for ${processedCount} entr${processedCount !== 1 ? 'ies' : 'y'}.`);
+  // ─ after  `const data = await response.json();`
+const count   = data.raw_table?.length || 0;
+const elapsed = data.elapsed;   // now coming from backend
+  messages.unshift(`✅ Data found for ${processedCount} entr${processedCount !== 1 ? 'ies' : 'y'} in ${elapsed} seconds.`);
   
   // new block: overall services used
 if (Array.isArray(data.services_used)) {

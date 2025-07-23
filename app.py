@@ -662,6 +662,7 @@ def handle_ip_lookup():
         "raw_table":     raw_table,
         "no_data_ips":   no_data_ips,
         "services_used":  sorted(used_services),
+        "elapsed":       elapsed,
         "per_ip_vt_keys": {
             r["ip"]: {
                 "used_service": r.get("used_service"),
