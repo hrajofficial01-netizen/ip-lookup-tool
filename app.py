@@ -591,7 +591,7 @@ def handle_ip_lookup():
     summary_text = "\n".join(summary_lines)
 
     elapsed = round(time.time() - start, 2)
-    unused_services.update({"VT","AbuseIPDB","DBIP","IPINFO","APIVoid"} - used_services)
+    unused_services.update({"VirusTotal","AbuseIPDB","DBIP","IPINFO","APIVoid"} - used_services)
 
     vt_ok   = vt_keys_used & vt_keys_success
     vt_bad  = exhausted_vt_keys.copy()

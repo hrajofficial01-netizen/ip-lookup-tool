@@ -97,7 +97,6 @@ async function fetchIPData() {
     errorMsg.classList.remove("hidden");
     return;
   }
-
   if (skippedInvalid.length > 0) {
     messages.push(`⚠️ ${skippedInvalid.length} Skipped invalid entr${skippedInvalid.length!== 1 ? 'ies' : 'y'}: ${skippedInvalid.join(", ")}`);
   }
@@ -140,26 +139,17 @@ async function fetchIPData() {
       const more = data.no_data_ips.length > 5 ? ` and ${data.no_data_ips.length - 5} more...` : "";
       messages.push(`⚠️ ${data.no_data_ips.length} entr${data.no_data_ips.length !== 1 ? 'ies' : 'y'} returned no fields: ${displayList}${more}`);
     }
-  // ─ after  `const data = await response.json();`
-const count   = data.raw_table?.length || 0;
-const elapsed = data.elapsed;   // now coming from backend
-  messages.unshift(`✅ Data found for ${processedCount} entr${processedCount !== 1 ? 'ies' : 'y'} in ${elapsed} seconds.`);
-  
-  // new block: overall services used
-if (Array.isArray(data.services_used)) {
-  const used = data.services_used.length
-    ? data.services_used.join(", ")
-    : "None";
-// right after you pull data.services_used
-const services = data.services_used || [];
-const count    = services.length;
-const usedList = count ? services.join(", ") : "None";
+    // ─ after  `const data = await response.json();`
+  const count   = data.raw_table?.length || 0;
+  const elapsed = data.elapsed;   // now coming from backend
+  // Prepare both messages first
+  const entryMsg = `✅ Data found for ${processedCount} entr${processedCount !== 1 ? 'ies' : 'y'} in ${data.elapsed} second${data.elapsed !== 1 ? 's' : ''}.`;
+  const serviceList = Array.isArray(data.services_used) ? data.services_used : [];
+  const serviceMsg = `🔧 Service${serviceList.length !== 1 ? 's' : ''} used: ${serviceList.join(", ") || "None"}`;
 
-messages.push(
-  `🔧 Service${count !== 1 ? "s" : ""} used: ${usedList}`
-);
-}
-
+  // Unshift them in reverse order so they appear in the correct visual order
+  messages.unshift(serviceMsg);
+  messages.unshift(entryMsg);
     summaryDiv.innerText = data.summary;
 
    const tableHead = document.getElementById("tableHead");
