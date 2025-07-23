@@ -461,6 +461,17 @@ def get_ip_info(ip):
         f"The IP: {ip_info['ip']} belongs to ISP: {ip_info['isp'] or 'N/A'}, "
         f"from Country: {ip_info['country'] or 'N/A'}, with Detection count: {ip_info['detections']}"
     )
+    # After, include a zero‑detection check:
+    if ip_info["detections"] == 0:
+        ip_info["summary"] = (
+            f"The IP: {ip_info['ip']} belongs to ISP: {ip_info['isp'] or 'N/A'}, "
+            f"from Country: {ip_info['country'] or 'N/A'}, with IP Score: 80"
+        )
+    else:
+        ip_info["summary"] = (
+            f"The IP: {ip_info['ip']} belongs to ISP: {ip_info['isp'] or 'N/A'}, "
+            f"from Country: {ip_info['country'] or 'N/A'}, with Detection count: {ip_info['detections']}"
+        )
     return ip_info
 
 

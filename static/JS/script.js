@@ -134,6 +134,11 @@ async function fetchIPData() {
     const data = await response.json();
     const processedCount = data.raw_table?.length || 0;
 
+    // Grab the raw summary
+
+// Now write the (possibly modified) summaryText to the page
+summaryDiv.innerText = summaryText;
+
     if (Array.isArray(data.no_data_ips) && data.no_data_ips.length > 0) {
       const displayList = data.no_data_ips.slice(0, 5).join(", ");
       const more = data.no_data_ips.length > 5 ? ` and ${data.no_data_ips.length - 5} more...` : "";
@@ -150,7 +155,8 @@ async function fetchIPData() {
   // Unshift them in reverse order so they appear in the correct visual order
   messages.unshift(serviceMsg);
   messages.unshift(entryMsg);
-    summaryDiv.innerText = data.summary;
+    // … after you've done:
+// const data = await response.json();
 
    const tableHead = document.getElementById("tableHead");
     tableHead.innerHTML = "";
