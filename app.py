@@ -466,7 +466,7 @@ def get_ip_info(ip):
 
 def lookup_url(url):
     vt_data = fetch_virustotal_url_data(url)
-    used_services.add("VT")
+    used_services.add("VirusTotal")
 
     # Always take detections from VT (0 if missing)
     detections = vt_data.get("detections") or 0
@@ -499,28 +499,7 @@ def lookup_url(url):
             + (f" Categories: {', '.join(vt_data.get('categories', []))}." if vt_data.get('categories') else "")
         )
     }
-    vt_data = fetch_virustotal_url_data(url)
-    used_services.add("VT")
-    detections = vt_data.get("detections") or 0
-    categories = vt_data.get("categories", [])
-    vt_key_used = vt_data.get("vt_key_used")
-
-    return {
-        "type": "URL",
-        "query": url,
-        "hostname": urlparse(url if url.startswith("http") else f"http://{url}").hostname,
-        "resolved_ip": "-",  # No IP resolution anymore
-        "ip": url,
-        "isp": "N/A",        # Skipping ISP/Country enrichment
-        "country": "N/A",
-        "detections": detections,
-        "vt_key_used": mask_key(vt_key_used) if vt_key_used else None,
-        
-        "summary": (
-            f"The URL: {url} was found in VirusTotal with {detections} malicious detections."
-            + (f" Categories: {', '.join(categories)}." if categories else "")
-        )
-    }
+   
 
 # ✅ `handle_ip_lookup()` and `/download_excel` + `/` route are included in [next message] due to length...
 @app.route("/get_ip_info", methods=["POST"])
