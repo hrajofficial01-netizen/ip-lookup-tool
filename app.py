@@ -23,6 +23,10 @@ load_dotenv()
 
 app = Flask(__name__)
 
+@app.route("/about")
+def about():
+        return render_template("about.html")
+    
 VT_KEYS = [key.strip() for key in os.getenv("VT_API_KEYS", "").split(",") if key.strip()]
 ABUSEIPDB_KEY = os.getenv("ABUSEIPDB_API_KEY")
 DBIP_KEY = os.getenv("DBIP_API_KEY")
@@ -759,6 +763,9 @@ def download_excel():
         as_attachment=True,
         download_name="IP_Info.xlsx"
     )
+    
+
+
 
 @app.route("/")
 def index():

@@ -361,3 +361,13 @@ toggleThemeBtn.addEventListener("click", () => {
     : '<i class="ph ph-sun"></i>';
   localStorage.setItem("theme", isLight ? "light" : "dark");
 });
+// tailwind.config.js
+module.exports = {
+  darkMode: 'class', // or 'media'
+  content: ['./**/*.html', './**/*.js'], // your paths
+  theme: {
+    extend: {},
+  },
+  plugins: [],
+}
+

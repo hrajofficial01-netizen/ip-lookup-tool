@@ -8,6 +8,7 @@
   <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600&display=swap" rel="stylesheet">
   <script src="https://unpkg.com/@phosphor-icons/web"></script>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
@@ -109,9 +110,37 @@
       </div>
     </div>
   </div>
+  
+<footer class="custom-footer">
+  <div class="footer-bar">
+    <div class="footer-links">
+      <a href="#">Home</a>
+      <a href="/about" class="footer-link">About</a>
+       <a href="https://mail.google.com/mail/?view=cm&fs=1&to=hrajofficial01@gmail.com" target="_blank">
+      <i class="fas fa-envelope"></i> Contact the developer
+       </a>
+
+    </div>
+     <div class="footer-divider"></div>
+    <div class="footer-copy">
+      &copy; <span id="current-year"></span> IP Lookup Tool. All rights reserved.
+    </div>
+    </div>
+  </div>
+</footer>
+
+
+<script>
+  document.getElementById('current-year').textContent = new Date().getFullYear();
+</script>
+
 </div>
 
+
+
 <script src="{{ url_for('static', filename='JS/script.obfuscated.js') }}"></script>
+ 
+
 
 </body>
 </html>

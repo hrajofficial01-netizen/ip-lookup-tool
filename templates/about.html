@@ -1,0 +1,82 @@
+<!-- Only the changes are marked with comments -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>About IP & URL Lookup Tool</title>
+  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="min-h-screen p-4 sm:p-6 bg-[#1e1e1e] text-white font-sans transition-all duration-300">
+  
+<div class="max-w-7xl mx-auto bg-[#2a2a2a] p-6 sm:p-10 rounded-2xl shadow-lg space-y-10 light-panel neon-border">
+
+  <!-- Header -->
+  <div class="sticky top-0 z-50 shadow-lg">
+    <div class="bg-green-600 text-white px-6 py-4 rounded-t-2xl flex items-center justify-between">
+      <h1 class="text-xl sm:text-2xl font-semibold">About IP & URL Lookup Tool</h1> <!-- ✅ Updated title -->
+      <button id="toggleTheme" class="text-white text-xl hover:text-yellow-300 transition duration-300">
+        <i class="ph ph-moon-stars"></i>
+      </button>
+    </div>
+  </div>
+
+    <div id="summary"  class="about-container text-base sm:text-xl font-semiboldm">
+     <p>Welcome to the <strong>IP & URL Lookup Tool</strong> — your one-stop utility for analyzing and investigating suspicious IP addresses and URLs.</p>
+
+      <ul class="about-list text-base sm:text-xl font-semibold ">
+        <li><strong>Dual Input Support:</strong> Accepts both IP addresses and URLs.</li>
+        <li><strong>IP Intelligence:</strong> Get ISP, ASN, country, and geolocation info.</li>
+        <li><strong>URL Scanning:</strong> Integrated with VirusTotal API for malicious detection.</li>
+        <li><strong>IP Resolution from URLs:</strong> Automatically extracts and enriches resolved IPs.</li>
+        <li><strong>Strict Validation:</strong> Filters duplicates, private, invalid IPs (up to 100 entries).</li>
+        <li><strong>Summaries:</strong> Provides lookup and API usage summary separately.</li>
+        <li><strong>Detailed Table Output:</strong> ASN, ISP, detections, IP origin, and more.</li>
+        <li><strong>Copy & Download:</strong> Clipboard and Excel export functionality.</li>
+        <li><strong>Theming:</strong> Smooth toggle between dark and light modes.</li>
+        <li><strong>Modern UI:</strong> Neon borders, transitions, responsive layout.</li>
+      </ul>
+
+      <p>This tool is ideal for:</p>
+      <ul class="about-list">
+        <li><strong>Cybersecurity researchers & SOC teams</strong></li>
+        <li><strong>Threat investigators & analysts</strong></li>
+        <li><strong>Network admins & developers</strong></li>
+        <li><strong>Anyone validating suspicious IPs or links</strong></li>
+      </ul>
+
+    </div>
+
+    <footer class="custom-footer">
+  <div class="footer-bar">
+    <div class="footer-links">
+      <a href="/" class="home-button">Home</a>
+      <a href="#">About</a>
+       <a href="https://mail.google.com/mail/?view=cm&fs=1&to=hrajofficial01@gmail.com" target="_blank">
+      <i class="fas fa-envelope"></i> Contact the developer
+       </a>
+
+    </div>
+     <div class="footer-divider"></div>
+    <div class="footer-copy">
+      &copy; <span id="current-year"></span> IP Lookup Tool. All rights reserved.
+    </div>
+    </div>
+  </div>
+</footer>
+
+
+<script>
+  document.getElementById('current-year').textContent = new Date().getFullYear();
+</script>
+
+</div>
+<script src="{{ url_for('static', filename='JS/script.obfuscated.js') }}"></script>
+
+</body>
+</html>
