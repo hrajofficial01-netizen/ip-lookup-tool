@@ -99,16 +99,16 @@ async function fetchIPData() {
   }
 
   if (skippedInvalid.length > 0) {
-    messages.push(`⚠️ ${skippedInvalid.length} Skipped invalid entries: ${skippedInvalid.join(", ")}`);
+    messages.push(`⚠️ ${skippedInvalid.length} Skipped invalid entr${skippedInvalid.length!== 1 ? 'ies' : 'y'}: ${skippedInvalid.join(", ")}`);
   }
 
   if (duplicates.length > 0) {
-    messages.push(`⚠️ ${duplicates.length} Removed duplicates: ${duplicates.join(", ")}`);
+    messages.push(`⚠️ ${duplicates.length} Removed duplicate${duplicates.length!== 1 ? 's' : ''}: ${duplicates.join(", ")}`);
   }
 
   const privateIPs = rawEntries.filter(ip => isValidIP(ip) && isPrivateIP(ip));
   if (privateIPs.length > 0) {
-    messages.push(`⚠️ ${privateIPs.length} Filtered private/reserved IPs: ${privateIPs.join(", ")}`);
+    messages.push(`⚠️ ${privateIPs.length} Filtered private/reserved IP${privateIPs.length!== 1 ? 's' : ''}: ${privateIPs.join(", ")}`);
   }
 
   if (validEntries.length > 100) {
@@ -142,7 +142,22 @@ async function fetchIPData() {
     }
 
   messages.unshift(`✅ Data found for ${processedCount} entr${processedCount !== 1 ? 'ies' : 'y'}.`);
-    
+  
+  // new block: overall services used
+if (Array.isArray(data.services_used)) {
+  const used = data.services_used.length
+    ? data.services_used.join(", ")
+    : "None";
+// right after you pull data.services_used
+const services = data.services_used || [];
+const count    = services.length;
+const usedList = count ? services.join(", ") : "None";
+
+messages.push(
+  `🔧 Service${count !== 1 ? "s" : ""} used: ${usedList}`
+);
+}
+
     summaryDiv.innerText = data.summary;
 
    const tableHead = document.getElementById("tableHead");

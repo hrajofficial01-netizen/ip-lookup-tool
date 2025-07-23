@@ -315,7 +315,7 @@ def get_ip_info(ip):
         if not vt_key:
             break
 
-        used_services.add("VT")
+        used_services.add("VirusTotal")
         headers = {"x-apikey": vt_key}
         try:
             resp = requests.get(
@@ -598,7 +598,7 @@ def handle_ip_lookup():
 
     # ← your original‐style summary prints
     print("\n📊 API USAGE SUMMARY")
-    print(f"✅ Data found for {len(valid_entries)} entries in {elapsed} seconds.")
+    print(f"✅ Data found for {len(valid_entries)} entr{'y' if len(valid_entries) == 1 else 'ies'} in {elapsed} seconds.")
     print(f"🔧 Services Used     : {', '.join(sorted(used_services)) or 'None'}")
     print(f"⚪ Services Unused   : {', '.join(sorted(unused_services)) or 'None'}")
     print(f"✅ Successfully Used VT Keys: {len(vt_ok)}")
@@ -661,6 +661,7 @@ def handle_ip_lookup():
         "table":         table_rows,
         "raw_table":     raw_table,
         "no_data_ips":   no_data_ips,
+        "services_used":  sorted(used_services),
         "per_ip_vt_keys": {
             r["ip"]: {
                 "used_service": r.get("used_service"),
