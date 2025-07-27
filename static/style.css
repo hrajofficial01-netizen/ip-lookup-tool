@@ -140,6 +140,9 @@ table tr:hover {
   font-weight: 500;
   line-height: 1.6;
   color: #ffffff;
+  background-color: #1e1e1e;
+    box-shadow: 0 0 10px rgba(253, 224, 71, 0.2);
+
 }
 
 .downloaded {
@@ -516,6 +519,7 @@ body.light-mode .neon-border::before {
 
 .footer-links a:hover {
   color: #ffffff;
+  transform: scale(1.12)!important;
 }
 
 .footer-copy {
@@ -620,4 +624,123 @@ body.light-mode .footer-bar {
 
 body.light-mode .footer-bar :hover {
   color: #000;
+}
+.highlighted-lines {
+  margin-top: 2rem;
+  padding: 1.2rem;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 0 12px rgba(255, 255, 255, 0.1); /* default foggy glow */
+  backdrop-filter: blur(6px);
+  text-align: center;
+}
+
+/* 💡 Light mode neon blue override */
+body.light-mode .highlighted-lines {
+  background: none;
+  border: 1px solid #ff0400;
+  /*box-shadow: 0 0 14px rgba(255, 21, 0, 0.6);/*rgba(0, 123, 255, 0.6);  strong blue glow */
+}
+
+/* Text color + animation default (yellow for dark mode) */
+.highlight-effect {
+  font-size: 2rem;
+  font-weight: 500;
+  color: #ffdd57;
+  text-shadow: 0 0 1px rgba(255, 221, 87, 0.5);
+  animation: glow-pulse 3s ease-in-out infinite alternate;
+}
+
+/* 🔵 Light mode: Blue text + glow */
+body.light-mode .highlight-effect {
+  color: #ff0400;
+  text-shadow: 0 0 1px #ff0400;
+  animation: blue-glow-pulse 3s ease-in-out infinite alternate;
+}
+
+/* Keyframes for dark mode (yellow glow) */
+@keyframes glow-pulse {
+  from {
+    text-shadow: 0 0 1px rgba(255, 221, 87, 0.4);
+  }
+  to {
+    text-shadow: 0 0 3px rgba(255, 221, 87, 0.6);
+  }
+}
+
+/* Keyframes for light mode (blue glow) */
+@keyframes blue-glow-pulse {
+  from {
+    text-shadow: 0 0 1px rgba(255, 0, 0, 0.3);
+  }
+  to {
+    text-shadow: 0 0 3px rgba(255, 123, 255, 0.5);
+  }
+}
+
+
+
+.text-primary {
+  color: #ffffff;
+}
+.text-accent {
+  color: #ffdd57;
+}
+.text-muted {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+body.light-mode .text-primary {
+  color: #000000;
+}
+body.light-mode .text-accent {
+  color: #ff0400;
+}
+body.light-mode .text-muted {
+  color: #444444;
+}
+
+.feature-box {
+  background: rgba(255, 255, 255, 0.02);
+  backdrop-filter: blur(4px);
+  border-color: #ffdd57;
+  border-left: 4px solid #ffdd57;
+}
+body.light-mode .feature-box {
+background: none;
+  border-left: 4px solid #ff002f;
+  border-color: #ff002f;
+}
+
+.audience-box {
+  /*background: rgba(0, 0, 0, 0.1);*/
+  background: rgba(255, 255, 255, 0.02);
+  backdrop-filter: blur(4px);
+  border-left: 4px solid #00bfff;
+  border-color: #00bfff;
+}
+body.light-mode .audience-box {
+background: none;  border-left: 4px solid #007bff;
+  border-color: #007bff;
+}
+.footer-links a {
+  display: inline-block !important;
+  color: #00aaff !important;
+  font-weight: 500;
+  margin: 0 15px;
+  text-decoration: none;
+  transition: all 0.10s ease-in-out !important;
+  transform-origin: center;
+}
+
+.footer-links a:hover {
+  color: #ffdd57 !important;
+  transform: scale(1.15) !important;
+  text-shadow: 0 0 6px rgba(255, 221, 87, 0.7), 0 0 12px rgba(255, 221, 87, 0.4) !important;
+}
+
+body.light-mode .footer-links a:hover {
+  color: #007bff !important;
+  text-shadow: 0 0 6px rgba(0, 123, 255, 0.7), 0 0 12px rgba(0, 123, 255, 0.4) !important;
 }
