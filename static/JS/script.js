@@ -137,7 +137,7 @@ async function fetchIPData() {
     // Grab the raw summary
 
 // Now write the (possibly modified) summaryText to the page
-summaryDiv.innerText = summaryText;
+summaryDiv.innerHTML = data.summary;
 
     if (Array.isArray(data.no_data_ips) && data.no_data_ips.length > 0) {
       const displayList = data.no_data_ips.slice(0, 5).join(", ");
@@ -148,9 +148,9 @@ summaryDiv.innerText = summaryText;
   const count   = data.raw_table?.length || 0;
   const elapsed = data.elapsed;   // now coming from backend
   // Prepare both messages first
-  const entryMsg = `✅ Data found for ${processedCount} entr${processedCount !== 1 ? 'ies' : 'y'} in ${data.elapsed} second${data.elapsed !== 1 ? 's' : ''}.`;
+  const entryMsg = `✅ Data found for <strong>${processedCount} entr${processedCount !== 1 ? 'ies' : 'y'} </strong> in <strong>${data.elapsed} second${data.elapsed !== 1 ? 's' : ''}</strong>.`;
   const serviceList = Array.isArray(data.services_used) ? data.services_used : [];
-  const serviceMsg = `🔧 Service${serviceList.length !== 1 ? 's' : ''} used: ${serviceList.join(", ") || "None"}`;
+  const serviceMsg = `🔧 Service${serviceList.length !== 1 ? 's' : ''} used: <strong>${serviceList.join(", ") || "None"}</strong>`;
 
   // Unshift them in reverse order so they appear in the correct visual order
   messages.unshift(serviceMsg);
@@ -222,7 +222,15 @@ if (data.column_label === "URL") {
     summarySection.classList.remove("hidden");
     tableSection.classList.remove("hidden");
     messageBlock.style.display = "block";
-    messageDiv.innerHTML = messages.join("<br>");
+    // New: clear and build each line so tags are parsed
+  // 1) Clear out old messages
+// 1. Clear out old content
+// clear out old content
+console.log("Final messages array:", messages);
+
+messageDiv.innerHTML = messages
+  .map(m => `<div class="font-medium mb-3">${m}</div>`)
+  .join("");
 
     requestAnimationFrame(() => {
       summarySection.classList.add("show");
@@ -248,7 +256,7 @@ if (data.column_label === "URL") {
 
 // Copy summary to clipboard
 function copyToClipboard(elementId, btnId) {
-  const text = document.getElementById(elementId).innerText;
+  const text = document.getElementById(elementId).innerHTML;
   navigator.clipboard.writeText(text).then(() => {
     const btn = document.getElementById(btnId);
     const original = btn.innerHTML;
@@ -323,7 +331,7 @@ function downloadExcel() {
 // Reset tool
 function resetTool() {
   document.getElementById("ipInput").value = "";
-  document.getElementById("message").innerText = "";
+  document.getElementById("message").innerHTML = "";
   const messageBlock = document.getElementById("messageBlock");
   if (messageBlock) {
     messageBlock.classList.remove("show");
@@ -333,7 +341,7 @@ function resetTool() {
   document.getElementById("errorMsg").classList.add("hidden");
   document.getElementById("summarySection").classList.add("hidden");
   document.getElementById("tableSection").classList.add("hidden");
-  document.getElementById("summary").innerText = "";
+  document.getElementById("summary").innerHTML = "";
   document.getElementById("tableBody").innerHTML = "";
   document.getElementById("downloadExcelBtn").style.display = "none";
   document.getElementById("resetContainer").classList.add("hidden");

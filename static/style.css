@@ -228,6 +228,14 @@ table tr:hover {
     font-size: 1.5rem;
   }
 }
+#message strong, #message b {
+  font-weight: 700 !important;
+}
+#message strong {
+  font-weight: bold;
+  color: #facc15; /* brighter yellow if you want */
+}
+
 #messageBlock {
   opacity: 0;
   transform: translateY(-5px);
@@ -650,6 +658,9 @@ body.light-mode .highlighted-lines {
   text-shadow: 0 0 1px rgba(255, 221, 87, 0.5);
   animation: glow-pulse 3s ease-in-out infinite alternate;
 }
+#message {
+  line-height: 2; /* or 2 for more spacing */
+}
 
 /* 🔵 Light mode: Blue text + glow */
 body.light-mode .highlight-effect {
@@ -740,6 +751,6 @@ background: none;  border-left: 4px solid #007bff;
 }
 
 body.light-mode .footer-links a:hover {
-  color: #007bff !important;
-  text-shadow: 0 0 6px rgba(0, 123, 255, 0.7), 0 0 12px rgba(0, 123, 255, 0.4) !important;
+  color: #ffdd57 !important;
+  text-shadow:none !important;
 }

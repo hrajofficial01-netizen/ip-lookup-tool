@@ -463,7 +463,7 @@ def get_ip_info(ip):
             ip_info["status_codes"]["APIVoid"] = "Error"
     ip_info["summary"] = (
         f"The IP: {ip_info['ip']} belongs to ISP: {ip_info['isp'] or 'N/A'}, "
-        f"from Country: {ip_info['country'] or 'N/A'}, with Detection count: {ip_info['detections']}"
+        f"from Country: {ip_info['country'] or 'N/A'}, with Detection count: {ip_info['detections']}/93"
     )
     
     return ip_info
