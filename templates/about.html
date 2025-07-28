@@ -8,6 +8,9 @@
   <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.0/css/all.min.css">
+
+
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600&display=swap" rel="stylesheet">
   <script src="https://unpkg.com/@phosphor-icons/web"></script>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
@@ -96,24 +99,27 @@
 </div>
 
 
-    <footer class="custom-footer">
+  <footer class="custom-footer">
   <div class="footer-bar">
     <div class="footer-links">
-      <a href="/" class="home-button">Home</a>
-      <a href="https://www.linkedin.com/in/harsh-raj-b142641bb/" class="home-button" target="_blank">LinkedIN</a>
-      <a href="https://mail.google.com/mail/?view=cm&fs=1&to=hrajofficial01@gmail.com" target="_blank">
-      <i class="fas fa-envelope"></i> Contact the developer
-       </a>
-
+      <a href="/" class="footer-icon-link" title="Home">
+        <i class="fas fa-house-chimney"></i>
+      </a>
+      <a href="https://www.linkedin.com/in/harsh-raj-b142641bb/" class="footer-icon-link" target="_blank" title="LinkedIn">
+        <i class="fab fa-linkedin"></i>
+      </a>
+      <a href="https://mail.google.com/mail/?view=cm&fs=1&to=hrajofficial01@gmail.com" class="footer-icon-link" target="_blank" title="Email">
+        <i class="fas fa-envelope"></i>
+      </a>
     </div>
-     <div class="footer-divider"></div>
+
+    <div class="footer-divider"></div>
+
     <div class="footer-copy">
       &copy; <span id="current-year"></span> IP & URL Lookup Tool. All rights reserved.
     </div>
-    </div>
   </div>
 </footer>
-
 
 <script>
   document.getElementById('current-year').textContent = new Date().getFullYear();

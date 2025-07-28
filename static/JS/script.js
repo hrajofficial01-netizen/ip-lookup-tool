@@ -98,21 +98,21 @@ async function fetchIPData() {
     return;
   }
   if (skippedInvalid.length > 0) {
-    messages.push(`⚠️ ${skippedInvalid.length} Skipped invalid entr${skippedInvalid.length!== 1 ? 'ies' : 'y'}: ${skippedInvalid.join(", ")}`);
+    messages.push(`⚠️ <span class="text-red-400 font-bold glow-red">${skippedInvalid.length} Invalid entr${skippedInvalid.length!== 1 ? 'ies' : 'y'} skipped</span> : ${skippedInvalid.join(", ")}`);
   }
 
   if (duplicates.length > 0) {
-    messages.push(`⚠️ ${duplicates.length} Removed duplicate${duplicates.length!== 1 ? 's' : ''}: ${duplicates.join(", ")}`);
+    messages.push(`⚠️ <span class="text-red-400 font-bold glow-red">${duplicates.length} Duplicate${duplicates.length!== 1 ? 's' : ''} removed</span>: ${duplicates.join(", ")}`);
   }
 
   const privateIPs = rawEntries.filter(ip => isValidIP(ip) && isPrivateIP(ip));
   if (privateIPs.length > 0) {
-    messages.push(`⚠️ ${privateIPs.length} Filtered private/reserved IP${privateIPs.length!== 1 ? 's' : ''}: ${privateIPs.join(", ")}`);
+    messages.push(`⚠️ <span class="text-red-400 font-bold glow-red">${privateIPs.length} Private/reserved IP${privateIPs.length!== 1 ? 's' : ''} filtered </span>: ${privateIPs.join(", ")}`);
   }
 
   if (validEntries.length > 100) {
-    messages.push(`⚠️ You entered ${validEntries.length} valid entries. Only the first 100 will be processed.`);
-    messages.push(`⚠️ ${validEntries.length - 100} entries skipped: ${validEntries.slice(100).join(", ")}`);
+    messages.push(`⚠️ You entered <span class="text-green-400 font-bold">${validEntries.length}</span> valid entries</span>. Only the first 100 will be processed.`);
+    messages.push(`⚠️ <span class="text-purple-400 font-bold">${validEntries.length - 100} entries skipped</span>: ${validEntries.slice(100).join(", ")}`);
     validEntries = validEntries.slice(0, 100);
   }
 
@@ -148,9 +148,10 @@ summaryDiv.innerHTML = data.summary;
   const count   = data.raw_table?.length || 0;
   const elapsed = data.elapsed;   // now coming from backend
   // Prepare both messages first
-  const entryMsg = `✅ Data found for <strong>${processedCount} entr${processedCount !== 1 ? 'ies' : 'y'} </strong> in <strong>${data.elapsed} second${data.elapsed !== 1 ? 's' : ''}</strong>.`;
+
+  const entryMsg = `✅ Data found for <span class="text-green-400 font-bold">${processedCount} entr${processedCount !== 1 ? 'ies' : 'y'} </span> in <span class="text-blue-400 font-bold">${data.elapsed} second${data.elapsed !== 1 ? 's' : ''}</span>.`;
   const serviceList = Array.isArray(data.services_used) ? data.services_used : [];
-  const serviceMsg = `🔧 Service${serviceList.length !== 1 ? 's' : ''} used: <strong>${serviceList.join(", ") || "None"}</strong>`;
+  const serviceMsg = `🔧 Service${serviceList.length !== 1 ? 's' : ''} used: <span class="text-purple-400 font-bold">${serviceList.join(", ") || "None"}</span>`;
 
   // Unshift them in reverse order so they appear in the correct visual order
   messages.unshift(serviceMsg);
@@ -369,13 +370,4 @@ toggleThemeBtn.addEventListener("click", () => {
     : '<i class="ph ph-sun"></i>';
   localStorage.setItem("theme", isLight ? "light" : "dark");
 });
-// tailwind.config.js
-module.exports = {
-  darkMode: 'class', // or 'media'
-  content: ['./**/*.html', './**/*.js'], // your paths
-  theme: {
-    extend: {},
-  },
-  plugins: [],
-}
 

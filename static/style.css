@@ -743,6 +743,10 @@ background: none;  border-left: 4px solid #007bff;
   transition: all 0.10s ease-in-out !important;
   transform-origin: center;
 }
+.glow-red {
+text-shadow: 0 0 1px #f87171;
+}
+
 
 .footer-links a:hover {
   color: #ffdd57 !important;
@@ -753,4 +757,85 @@ background: none;  border-left: 4px solid #007bff;
 body.light-mode .footer-links a:hover {
   color: #ffdd57 !important;
   text-shadow:none !important;
+}
+.footer-links a.footer-icon {
+  color: #aaa;
+  transition: color 0.3s ease, transform 0.2s ease;
+  text-decoration: none;
+}
+
+.footer-links a.footer-icon:hover {
+  color: #ffffff;
+  transform: scale(1.15);
+  text-shadow: 0 0 4px rgba(255, 255, 255, 0.6);
+}
+
+.footer-divider {
+  height: 1px;
+  background: #333;
+  margin: 10px auto;
+  width: 60%;
+}
+
+.custom-footer {
+  padding: 16px 0;
+
+}
+.custom-footer {
+
+  padding: 1rem 0;
+  text-align: center;
+  color: #e5e7eb;
+  font-family: 'Segoe UI', sans-serif;
+  
+}
+
+.footer-bar {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.footer-links {
+  display: flex;
+  justify-content: center;
+  gap: 1.8rem;
+  margin-bottom: 0.8rem;
+}
+
+.footer-icon-link {
+  font-size: 1.5rem;
+  color: #9ca3af;
+  transition: color 0.3s, transform 0.3s;
+}
+
+.footer-icon-link:hover {
+  color: #f87171; /* light red hover */
+  transform: scale(1.15);
+}
+
+.footer-divider {
+  height: 1px;
+  background-color: #374151;
+  margin: 0.5rem auto;
+  width: 60%;
+}
+
+.footer-copy {
+  font-size: 0.875rem;
+  color: #9ca3af;
+}
+
+/* Optional Light Mode */
+
+
+body.light-mode .footer-icon-link {
+  color: #6b7280;
+}
+
+body.light-mode .footer-icon-link:hover {
+  color: #d97706; /* amber hover */
+}
+
+body.light-mode .footer-copy {
+  color: #6b7280;
 }
