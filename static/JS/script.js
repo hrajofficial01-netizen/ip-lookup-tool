@@ -370,4 +370,3 @@ toggleThemeBtn.addEventListener("click", () => {
     : '<i class="ph ph-sun"></i>';
   localStorage.setItem("theme", isLight ? "light" : "dark");
 });
-
