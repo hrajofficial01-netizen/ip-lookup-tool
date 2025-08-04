@@ -29,14 +29,8 @@ def upgrade():
     )
     if result.scalar() is not None:
         op.drop_table('search_log')
-
+        op.drop_table('lookup_data')
     # Rest of your upgrade code...
-
-def downgrade():
-    # Re-create table here if needed, or pass if not
-    pass
-
-
 
 def downgrade() -> None:
     """Downgrade schema."""
