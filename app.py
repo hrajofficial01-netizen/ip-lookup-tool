@@ -1,50 +1,113 @@
-from flask import Flask, request, jsonify, send_file, render_template
 import os
-import requests
+import time
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import base64
+import io
+import ipaddress
+import re
+from urllib.parse import urlparse
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
+import requests
+import pytz
+from flask import Flask, request, jsonify, send_file, render_template
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+
 from dotenv import load_dotenv
 from openpyxl import Workbook
-from openpyxl.styles import Alignment, Border, Side, Font
-from iso3166 import countries
-import ipaddress
-import tempfile
-import socket
-from urllib.parse import urlparse
-import time
-import io
-import io
-from flask import Flask, request, jsonify, send_file, render_template
-from openpyxl import Workbook
-from openpyxl.styles import Font
+from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+from iso3166 import countries
 
+from db import SessionLocal
+from models import LookupData, SearchLog
+
+# Load environment variables
 load_dotenv()
 
 app = Flask(__name__)
 
-@app.route("/about")
-def about():
-        return render_template("about.html")
-    
+# API keys from environment
 VT_KEYS = [key.strip() for key in os.getenv("VT_API_KEYS", "").split(",") if key.strip()]
 ABUSEIPDB_KEY = os.getenv("ABUSEIPDB_API_KEY")
 DBIP_KEY = os.getenv("DBIP_API_KEY")
 IPINFO_KEY = os.getenv("IPINFO_API_KEY")
 APIVOID_KEY = os.getenv("APIVOID_API_KEY")
 
+# Globals
 vt_key_index = 0
 vt_key_lock = threading.Lock()
 exhausted_vt_keys = set()
 exhausted_other_keys = set()
 vt_keys_used = set()
 vt_keys_success = set()
-
-MAX_WORKERS = 100
-
 used_services = set()
 unused_services = set()
 country_cache = {}
+MAX_WORKERS = 100
+
+def upsert_lookup_data(result):
+    """
+    Inserts into lookup_data if missing.
+    Does *not* touch this row again on repeat searches.
+    """
+    session = SessionLocal()
+    try:
+        entry      = result["ip"]
+        entry_type = result.get("type", "IP").lower()
+        # these fields come from get_ip_info or lookup_url
+        isp            = result.get("isp", "")
+        asn            = result.get("asn", "")
+        country        = result.get("country", "")
+        detection_count= result.get("detections", 0)
+        associated_ip  = result.get("resolved_ip") or ""
+
+        existing = session.get(LookupData, entry)
+        if not existing:
+            new = LookupData(
+                entry=entry,
+                entry_type=entry_type,
+                isp=isp,
+                asn=asn,
+                country=country,
+                detection_count=detection_count,
+                associated_ip=associated_ip
+            )
+            session.add(new)
+            session.commit()
+    except Exception:
+        session.rollback()
+    finally:
+        session.close()
+
+
+def upsert_search_log(entry, client_name, timestamp):
+    """
+    For each search: increment lookup_count & update last_searched;
+    if first time, create row with first_searched=last_searched=timestamp.
+    """
+    session = SessionLocal()
+    try:
+        pk = dict(entry=entry, client_name=client_name)
+        existing = session.get(SearchLog, (entry, client_name))
+        if existing:
+            existing.lookup_count += 1
+            existing.last_searched = timestamp
+        else:
+            new = SearchLog(
+                entry=entry,
+                client_name=client_name,
+                first_searched=timestamp,
+                last_searched=timestamp,
+                lookup_count=1
+            )
+            session.add(new)
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+    finally:
+        session.close()
+
 
 def get_country_name(code):
     if not code:
@@ -463,7 +526,7 @@ def get_ip_info(ip):
             ip_info["status_codes"]["APIVoid"] = "Error"
     ip_info["summary"] = (
         f"The IP: {ip_info['ip']} belongs to ISP: {ip_info['isp'] or 'N/A'}, "
-        f"from Country: {ip_info['country'] or 'N/A'}, with Detection count: {ip_info['detections']}/93"
+        f"from Country: {ip_info['country'] or 'N/A'}, with Detection count: {ip_info['detections']}/93."
     )
     
     return ip_info
@@ -507,11 +570,16 @@ def lookup_url(url):
    
 
 # ✅ `handle_ip_lookup()` and `/download_excel` + `/` route are included in [next message] due to length...
+@app.route("/about")
+def about():
+    return render_template("about.html")
+
 @app.route("/get_ip_info", methods=["POST"])
 def handle_ip_lookup():
     start = time.time()
     data = request.json
     entries = data.get("ips", [])
+    client_name = data.get("client_name", "").strip()
 
     global used_services, unused_services, vt_keys_used, vt_keys_success, exhausted_other_keys
     used_services.clear()
@@ -524,25 +592,108 @@ def handle_ip_lookup():
     valid_entries = []
     for entry in entries:
         e = entry.strip()
-        if e in seen: continue
+        if e in seen:
+            continue
         seen.add(e)
         if is_valid_public_ip(e) or is_valid_url(e):
             valid_entries.append(e)
-        if len(valid_entries) >= 100: break
+        if len(valid_entries) >= 100:
+            break
+
+    def resolve_entry(e, client_name=client_name, timestamp_ist=None):
+        session = SessionLocal()
+        try:
+            record = session.query(LookupData).filter_by(entry=e).first()
+
+            if record:
+                # Update or insert into SearchLog
+                search_log = session.query(SearchLog).filter_by(entry=e, client_name=client_name).first()
+                now = timestamp_ist or datetime.now()
+
+                if search_log:
+                    search_log.last_searched = now
+                else:
+                    new_log = SearchLog(
+                        entry=e,
+                        client_name=client_name,
+                        first_searched=now,
+                        last_searched=now,
+                        lookup_count=1
+                    )
+                    session.add(new_log)
+                session.commit()
+
+                used_services.add("Database")
+                if record:
+                    return {
+                        "ip": record.associated_ip if record.entry_type == "url" else record.entry,
+                        "query": record.entry,  # add this line
+                        "resolved_ip": record.associated_ip if record.entry_type == "url" else "-",  # add this line
+                        "isp": record.isp or "",
+                        "asn": record.asn or "",
+                        "country": record.country or "",
+                        "detections": record.detection_count or 0,
+                        "service_sources": {
+                            "isp": "Database",
+                            "asn": "Database",
+                            "country": "Database",
+                            "detections": "Database"
+                        },
+                        "used_service": "Database",
+                        "used_key": "N/A",
+                        "status_codes": {"Database": 200},
+                        "summary": (
+                            f"The {'URL' if record.entry_type == 'url' else 'IP'}: {e} belongs to ISP: {record.isp or 'N/A'}, from Country: {record.country or 'N/A'}, with Detection count: {record.detection_count or 0}/93."
+                        )
+                    }
+
+
+                
+            # Not found in DB, live lookup
+            if is_valid_public_ip(e):
+                return get_ip_info(e)
+            elif is_valid_url(e):
+                return lookup_url(e)
+            else:
+                return None
+        except Exception as ex:
+            session.rollback()
+            print(f"❌ DB error during resolve_entry({e}): {ex}")
+            return None
+        finally:
+            session.close()
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        results = list(executor.map(
-            lambda e: get_ip_info(e) if is_valid_public_ip(e) else lookup_url(e),
-            valid_entries
-        ))
+        results = list(executor.map(resolve_entry, valid_entries))
+
+    # Filter out None results to avoid errors later
+    results = [r for r in results if r is not None]
+
+    print("All results from lookup:", results)
+    print("\n---------------------------------\n")
+    for r in results:
+        if "summary" not in r or not r["summary"]:
+            print(f"Warning: Entry without summary: {r}")
+            
+    timestamp_ist = datetime.now(pytz.timezone("Asia/Kolkata"))
+
+    # 1️⃣ populate lookup_data only once per entry:
+    for r in results:
+        if r.get("used_service") != "Database":
+            upsert_lookup_data(r)
+
+    # 2️⃣ always update search_log for each entry & client:
+    for r in results:
+        entry = r.get("ip")
+        upsert_search_log(entry, client_name, timestamp_ist)
 
     has_url = any(r.get("type") == "URL" for r in results)
 
     no_data_ips = []
     for r in results:
-        is_url      = (r.get("type") == "URL")
-        det         = r.get("detections", 0)
-        isp, ctr    = r.get("isp",""), r.get("country","")
+        is_url = (r.get("type") == "URL")
+        det = r.get("detections", 0)
+        isp, ctr = r.get("isp", ""), r.get("country", "")
         if is_url:
             if det == 0 and not isp and not ctr:
                 no_data_ips.append(r["ip"])
@@ -551,12 +702,14 @@ def handle_ip_lookup():
                 no_data_ips.append(r["ip"])
 
     table_rows = ""
-    raw_table  = []
+    raw_table = []
+
     for r in results:
-        ip_or_url = r.get("query", r["ip"])
-        resolved  = r.get("resolved_ip", "-")
-        isp, ctr  = r["isp"], r["country"]
-        det       = r["detections"]
+        ip_or_url = r.get("query") or r.get("ip") or "N/A"
+        resolved = r.get("resolved_ip") or "-"
+        isp, ctr = r.get("isp", ""), r.get("country", "")
+        det = r.get("detections", 0)
+
         table_rows += (
             f"<tr>"
             f"<td>{ip_or_url}</td>"
@@ -564,50 +717,58 @@ def handle_ip_lookup():
             f"<td>{isp}</td>"
             f"<td>{ctr}</td>"
             f"<td>{det}</td>"
+            f"<td>{client_name}</td>"
             f"</tr>"
         )
-        raw_table.append([ip_or_url, resolved, isp, ctr, det, r.get("used_key")])
+        raw_table.append([ip_or_url, resolved, isp, ctr, det, client_name, r.get("used_key"), timestamp_ist])
+
 
     summary_lines = []
     for i, r in enumerate(results):
-        if i: summary_lines.append("")
+        if i:
+            summary_lines.append("")
         summary_lines.append(r["summary"])
     summary_text = "\n".join(summary_lines)
 
     elapsed = round(time.time() - start, 2)
-    unused_services.update({"VirusTotal","AbuseIPDB","DBIP","IPINFO","APIVoid"} - used_services)
+    unused_services.update({"VirusTotal", "AbuseIPDB", "DBIP", "IPINFO", "APIVoid", "Database"} - used_services)
 
-    vt_ok   = vt_keys_used & vt_keys_success
-    vt_bad  = exhausted_vt_keys.copy()
+    vt_ok = vt_keys_used & vt_keys_success
+    vt_bad = exhausted_vt_keys.copy()
 
-    # ← your original‐style summary prints
+    # ← your original-style summary prints with all details:
     print("\n📊 API USAGE SUMMARY")
+    print(f"⏰ Search Timestamp (IST): {timestamp_ist}")
     print(f"✅ Data found for {len(valid_entries)} entr{'y' if len(valid_entries) == 1 else 'ies'} in {elapsed} seconds.")
     print(f"🔧 Services Used     : {', '.join(sorted(used_services)) or 'None'}")
     print(f"⚪ Services Unused   : {', '.join(sorted(unused_services)) or 'None'}")
     print(f"✅ Successfully Used VT Keys: {len(vt_ok)}")
-    for k in vt_ok:           print(f"    {mask_key(k)}")
+    for k in vt_ok:
+        print(f"    {mask_key(k)}")
     print(f"❌ Exhausted VT Keys: {len(vt_bad)}")
-    for k in vt_bad:          print(f"    {mask_key(k)}")
+    for k in vt_bad:
+        print(f"    {mask_key(k)}")
     if exhausted_other_keys:
         print("❌ Exhausted Other Services:", ", ".join(exhausted_other_keys))
     if len(vt_bad) > 10:
         print("⚠️ Warning: More than 10 VT keys are exhausted. Consider rotating or refreshing your keys.")
     vt_unused = set(VT_KEYS) - (vt_keys_success | exhausted_vt_keys)
     print(f"🟡 Unused VT Keys: {len(vt_unused)}")
-    for k in vt_unused:       print(f"    {mask_key(k)}")
+    for k in vt_unused:
+        print(f"    {mask_key(k)}")
     print("Used API Keys:")
-    if vt_ok:    print("  VT Keys:", ", ".join(mask_key(k) for k in vt_ok))
-    if "AbuseIPDB" in used_services: print("  AbuseIPDB Key:", mask_key(ABUSEIPDB_KEY))
-    if "DBIP" in used_services:      print("  DBIP Key:", mask_key(DBIP_KEY))
-    if "IPINFO" in used_services:    print("  IPInfo Key:", mask_key(IPINFO_KEY))
-    if "APIVoid" in used_services:   print("  APIVoid Key:", mask_key(APIVOID_KEY))
+    if vt_ok:
+        print("  VT Keys:", ", ".join(mask_key(k) for k in vt_ok))
+    if "AbuseIPDB" in used_services:
+        print("  AbuseIPDB Key:", mask_key(ABUSEIPDB_KEY))
+    if "DBIP" in used_services:
+        print("  DBIP Key:", mask_key(DBIP_KEY))
+    if "IPINFO" in used_services:
+        print("  IPInfo Key:", mask_key(IPINFO_KEY))
+    if "APIVoid" in used_services:
+        print("  APIVoid Key:", mask_key(APIVOID_KEY))
 
-    # ← per‐entry with service tags
-      # Per-entry detailed printout
-        # Per-entry single‑line detailed printout
-        # Per‑entry concise but readable summary
-        # Per‑entry summary with spacing
+    # ← per-entry detailed printout
     print("\n📋 Per Entry Summary:\n")
     for r in results:
         ip_entry = r.get("ip") or r.get("query")
@@ -625,89 +786,72 @@ def handle_ip_lookup():
         # Compose status codes
         status_parts = [f"{svc}={code}" for svc, code in r.get("status_codes", {}).items()]
 
-        # Blank line for spacing, then the summary line
+        # Print summary line with spacing
         print()
         print(
             f"[{ip_entry}]  " +
             ";   ".join(main_parts) +
             "\n|  StatusCodes: " + ", ".join(status_parts)
         )
-        # Extra blank line after each, if you want even more
         print()
 
     print("----------------------------\n")
 
-    types = { "IP" if is_valid_ip(e) else "URL" for e in entries if is_valid_ip(e) or is_valid_url(e) }
-    column_label = "IP" if types=={"IP"} else "URL" if types=={"URL"} else "IP/URL"
+    types = {"IP" if is_valid_ip(e) else "URL" for e in entries if is_valid_ip(e) or is_valid_url(e)}
+    column_label = "IP" if types == {"IP"} else "URL" if types == {"URL"} else "IP/URL"
+    print("Returning raw_table:", raw_table)
+    print("\n---------------------------------\n")
 
     return jsonify({
-        "summary":       summary_text,
-        "table":         table_rows,
-        "raw_table":     raw_table,
-        "no_data_ips":   no_data_ips,
-        "services_used":  sorted(used_services),
-        "elapsed":       elapsed,
+        "summary": summary_text,
+        "table": table_rows,
+        "raw_table": raw_table,
+        "no_data_ips": no_data_ips,
+        "services_used": sorted(used_services),
+        "elapsed": elapsed,
         "per_ip_vt_keys": {
             r["ip"]: {
                 "used_service": r.get("used_service"),
-                "used_key":     r.get("used_key"),
-                "status_codes": r.get("status_codes",{})
+                "used_key": r.get("used_key"),
+                "status_codes": r.get("status_codes", {})
             }
             for r in results if "ip" in r
         },
-        "has_url":       has_url,
-        "column_label":  column_label
+        "has_url": has_url,
+        "column_label": column_label
     })
-
-from flask import request, send_file
-from io import BytesIO
-from openpyxl import Workbook
-from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 
 @app.route("/download_excel", methods=["POST"])
 def download_excel():
-    from openpyxl import Workbook
-    from openpyxl.styles import Font, Alignment, Border, Side
-    from openpyxl.utils import get_column_letter
-    import io
-
     data = request.get_json()
+    client_name = data.get("client_name", "N/A")
     table_data = data.get("table_data", [])
     summary_text = data.get("summary", "")
     column_label = data.get("column_label", "IP")
-
-    print("Incoming /download_excel payload:")
-    print("Summary:", summary_text.strip())
-    print("Column label:", column_label)
-    if table_data:
-        print("First row of table_data:", table_data[0])
 
     wb = Workbook()
     ws_table = wb.active
     ws_table.title = "Lookup Data"
 
-    # Determine if "Resolved IP" column is present
     has_resolved_ip = any(
         isinstance(row, list) and len(row) >= 5 and str(row[1]).strip() not in ("-", "", "None")
         for row in table_data
     )
 
-
-    # Header
     headers = (
-        [column_label, "Resolved IP", "ISP", "Country", "Detections"]
+        [column_label, "Resolved IP", "ISP", "Country", "Detections", "Client Name"]
         if has_resolved_ip
-        else [column_label, "ISP", "Country", "Detections"]
+        else [column_label, "ISP", "Country", "Detections", "Client Name"]
     )
     ws_table.append(headers)
 
-    # Body
     for row in table_data:
         ip_or_url = row[0]
         resolved_ip = row[1]
         isp = row[2]
         country = row[3]
         detections = row[4]
+        client_name_in_row = row[5] if len(row) > 5 else "Unknown"
 
         if resolved_ip and resolved_ip not in ("-", "", "None") and resolved_ip != ip_or_url:
             display_value = f"{ip_or_url}"
@@ -715,10 +859,9 @@ def download_excel():
             display_value = ip_or_url
 
         if has_resolved_ip:
-            ws_table.append([display_value, resolved_ip, isp, country, detections])
+            ws_table.append([display_value, resolved_ip, isp, country, detections, client_name_in_row])
         else:
-            ws_table.append([display_value, isp, country, detections])
-
+            ws_table.append([display_value, isp, country, detections, client_name_in_row])
 
     # Formatting styles
     bold_font = Font(bold=True)
@@ -730,7 +873,6 @@ def download_excel():
         bottom=Side(style="thin"),
     )
 
-    # Apply formatting
     for row in ws_table.iter_rows():
         for cell in row:
             cell.alignment = center_align
@@ -738,13 +880,11 @@ def download_excel():
             if cell.row == 1:
                 cell.font = bold_font
 
-    # Autofit column width
     for col_cells in ws_table.columns:
         max_length = max(len(str(cell.value)) if cell.value else 0 for cell in col_cells)
         col_letter = get_column_letter(col_cells[0].column)
         ws_table.column_dimensions[col_letter].width = max(12, min(max_length + 4, 50))
 
-    # Summary sheet
     ws_summary = wb.create_sheet("Summary")
     ws_summary["A1"] = "Scan Summary"
     ws_summary["A1"].font = Font(size=14, bold=True)
@@ -752,7 +892,6 @@ def download_excel():
     ws_summary["A2"].alignment = Alignment(wrap_text=True, vertical="top")
     ws_summary.column_dimensions["A"].width = 100
 
-    # Return Excel file
     output = io.BytesIO()
     wb.save(output)
     output.seek(0)
@@ -763,13 +902,11 @@ def download_excel():
         as_attachment=True,
         download_name="IP_Info.xlsx"
     )
-    
-
-
 
 @app.route("/")
 def index():
     return render_template("index.html")
+
 
 if __name__ == "__main__":
     app.run(debug=True)

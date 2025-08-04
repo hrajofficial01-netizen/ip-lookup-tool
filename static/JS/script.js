@@ -1,4 +1,7 @@
+
+
 // Stricter IPv4 and basic IPv6 format validation
+
 function isValidIP(ip) {
   const ipv4 = /^(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)){3}$/;
   const ipv6 = /^(([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|::1)$/;
@@ -52,6 +55,14 @@ async function fetchIPData() {
   const messageDiv = document.getElementById("message");
   const messageBlock = document.getElementById("messageBlock");
   const downloadBtn = document.getElementById("downloadExcelBtn");
+  const clientName = document.getElementById("clientName").value.trim();
+
+  // 1️⃣ Must be here — before any splitting or fetch:
+  if (!clientName) {
+    errorMsg.textContent = "⚠️ Client name is required to perform the lookup.";
+    errorMsg.classList.remove("hidden");
+    return;
+  }
 
   errorMsg.classList.add("hidden");
   summarySection.classList.add("hidden");
@@ -61,6 +72,7 @@ async function fetchIPData() {
   downloadBtn.style.display = "none";
   messageDiv.innerHTML = "";
   messageBlock.classList.remove("show", "hidden");
+
 
   let rawEntries = inputField.value
     .split(/[\s,\n]+/)
@@ -91,6 +103,7 @@ async function fetchIPData() {
 
   let validEntries = [...validIPs, ...validURLs];
   const messages = [];
+
 
   if (validEntries.length === 0) {
     errorMsg.textContent = "⚠️ No valid public IPs or URLs found.";
@@ -123,7 +136,10 @@ async function fetchIPData() {
     const response = await fetch("/get_ip_info", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ips: validEntries })
+      body: JSON.stringify({ 
+        ips: validEntries,
+        client_name: clientName || "N/A"
+      })
     });
 
     if (!response.ok) {
@@ -168,15 +184,15 @@ summaryDiv.innerHTML = data.summary;
 
 if (data.column_label === "URL") {
   // Only URLs provided
-  headerTitles = ["URL", "Resolved IP", "ISP", "Country", "Detections"];
+  headerTitles = ["URL", "Resolved IP", "ISP", "Country", "Detections","Client Name"];
   useResolvedIP = true;
 } else if (data.column_label === "IP") {
   // Only IPs provided
-  headerTitles = ["IP", "ISP", "Country", "Detections"];
+  headerTitles = ["IP", "ISP", "Country", "Detections","Client Name"];
   useResolvedIP = false;
 } else {
   // Mixed IPs + URLs
-  headerTitles = ["IP/URL", "Resolved IP", "ISP", "Country", "Detections"];
+  headerTitles = ["IP/URL", "Resolved IP", "ISP", "Country", "Detections","Client Name"];
   useResolvedIP = true;
 }
 
@@ -196,17 +212,17 @@ if (data.column_label === "URL") {
 
       if (data.column_label === "IP") {
         // Only IPs → no Resolved IP column
-        cells = [inputValue, isp, country, detections];
+        cells = [inputValue, isp, country, detections,clientName];
       } else if (data.column_label === "URL") {
         // Only URLs → show Resolved IP
-        cells = [inputValue, resolvedIP || "-", isp, country, detections];
+        cells = [inputValue, resolvedIP || "-", isp, country, detections,clientName];
       } else {
         // Mixed input → if resolvedIP is different, it's a URL
         const isURL = resolvedIP && resolvedIP !== "-" && resolvedIP !== inputValue;
         if (isURL) {
-          cells = [inputValue, resolvedIP, isp, country, detections];
+          cells = [inputValue, resolvedIP, isp, country, detections,clientName];
         } else {
-          cells = [inputValue, "-", isp, country, detections];
+          cells = [inputValue, "-", isp, country, detections,clientName];
         }
       }
 
@@ -292,13 +308,16 @@ function copyTableToClipboard(btnId) {
 
 // Download Excel file
 function downloadExcel() {
+const clientName = document.getElementById("clientName").value.trim();
+
   fetch("/download_excel", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       table_data: window._latestTable || [],
       summary: window._latestSummary || "",
-      column_label: window._columnLabel || "IP"
+      column_label: window._columnLabel || "IP",
+      client_name: clientName || "N/A"
     })
   })
   .then(resp => resp.blob())
