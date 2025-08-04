@@ -23,14 +23,15 @@ from sqlalchemy import text
 
 def upgrade():
     conn = op.get_bind()
-    # Check if index exists (PostgreSQL specific)
     result = conn.execute(
         text("SELECT to_regclass('public.ix_lookup_logs_id')")
     )
-    index_exists = result.scalar() is not None
-
-    if index_exists:
+    if result.scalar() is not None:
         op.drop_index(op.f('ix_lookup_logs_id'), table_name='lookup_logs')
+    # ...rest of your migration code
+
+def downgrade():
+    op.create_index('ix_lookup_logs_id', 'lookup_logs', ['id'])
 
     # Add any other upgrade commands here...
 
