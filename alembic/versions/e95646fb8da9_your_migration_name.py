@@ -18,9 +18,21 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
-def upgrade() -> None:
-    """Upgrade schema."""
+from alembic import op
+from sqlalchemy import text
 
+def upgrade():
+    conn = op.get_bind()
+    # Check if index exists (PostgreSQL specific)
+    result = conn.execute(
+        text("SELECT to_regclass('public.ix_lookup_logs_id')")
+    )
+    index_exists = result.scalar() is not None
+
+    if index_exists:
+        op.drop_index(op.f('ix_lookup_logs_id'), table_name='lookup_logs')
+
+    # Add any other upgrade commands here...
 
 def downgrade() -> None:
     """Downgrade schema."""
