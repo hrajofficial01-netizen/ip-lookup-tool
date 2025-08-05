@@ -55,12 +55,13 @@ async function fetchIPData() {
   const messageDiv = document.getElementById("message");
   const messageBlock = document.getElementById("messageBlock");
   const downloadBtn = document.getElementById("downloadExcelBtn");
-  const clientName = document.getElementById("clientName").value.trim();
+  const clientName ="test"
+  //const clientName = document.getElementById("clientName").value.trim();
 
   // 1️⃣ Must be here — before any splitting or fetch:
   if (!clientName) {
-    errorMsg.textContent = "⚠️ Client name is required to perform the lookup.";
-    errorMsg.classList.remove("hidden");
+   // errorMsg.textContent = "⚠️ Client name is required to perform the lookup.";
+    clientName ="test"
     return;
   }
 
