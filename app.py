@@ -717,10 +717,12 @@ def handle_ip_lookup():
             f"<td>{isp}</td>"
             f"<td>{ctr}</td>"
             f"<td>{det}</td>"
-            f"<td>{client_name}</td>"
+            #f"<td>{client_name}</td>"
             f"</tr>"
         )
-        raw_table.append([ip_or_url, resolved, isp, ctr, det, client_name, r.get("used_key"), timestamp_ist])
+        raw_table.append([ip_or_url, resolved, isp, ctr, det,
+                          #client_name, 
+                          r.get("used_key"), timestamp_ist])
 
 
     summary_lines = []
@@ -824,7 +826,7 @@ def handle_ip_lookup():
 @app.route("/download_excel", methods=["POST"])
 def download_excel():
     data = request.get_json()
-    client_name = data.get("client_name", "N/A")
+    #client_name = data.get("client_name", "N/A")
     table_data = data.get("table_data", [])
     summary_text = data.get("summary", "")
     column_label = data.get("column_label", "IP")
@@ -839,9 +841,11 @@ def download_excel():
     )
 
     headers = (
-        [column_label, "Resolved IP", "ISP", "Country", "Detections", "Client Name"]
+        [column_label, "Resolved IP", "ISP", "Country", "Detections"#, "Client Name"
+         ]
         if has_resolved_ip
-        else [column_label, "ISP", "Country", "Detections", "Client Name"]
+        else [column_label, "ISP", "Country", "Detections"#,"Client Name"
+              ]
     )
     ws_table.append(headers)
 
@@ -859,9 +863,11 @@ def download_excel():
             display_value = ip_or_url
 
         if has_resolved_ip:
-            ws_table.append([display_value, resolved_ip, isp, country, detections, client_name_in_row])
+            ws_table.append([display_value, resolved_ip, isp, country, detections#, client_name_in_row
+                             ])
         else:
-            ws_table.append([display_value, isp, country, detections, client_name_in_row])
+            ws_table.append([display_value, isp, country, detections#, client_name_in_row
+                             ])
 
     # Formatting styles
     bold_font = Font(bold=True)

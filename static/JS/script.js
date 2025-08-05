@@ -55,15 +55,15 @@ async function fetchIPData() {
   const messageDiv = document.getElementById("message");
   const messageBlock = document.getElementById("messageBlock");
   const downloadBtn = document.getElementById("downloadExcelBtn");
-  const clientName ="test"
+  //const clientName ="test"
   //const clientName = document.getElementById("clientName").value.trim();
 
   // 1️⃣ Must be here — before any splitting or fetch:
-  if (!clientName) {
+  //if (!clientName) {
    // errorMsg.textContent = "⚠️ Client name is required to perform the lookup.";
-    clientName ="test"
-    return;
-  }
+   // clientName ="test"
+   // return;
+  //}
 
   errorMsg.classList.add("hidden");
   summarySection.classList.add("hidden");
@@ -139,7 +139,7 @@ async function fetchIPData() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ 
         ips: validEntries,
-        client_name: clientName || "N/A"
+        //client_name: clientName || "N/A"
       })
     });
 
@@ -185,15 +185,18 @@ summaryDiv.innerHTML = data.summary;
 
 if (data.column_label === "URL") {
   // Only URLs provided
-  headerTitles = ["URL", "Resolved IP", "ISP", "Country", "Detections","Client Name"];
+  headerTitles = ["URL", "Resolved IP", "ISP", "Country", "Detections"//,"Client Name"
+  ];
   useResolvedIP = true;
 } else if (data.column_label === "IP") {
   // Only IPs provided
-  headerTitles = ["IP", "ISP", "Country", "Detections","Client Name"];
+  headerTitles = ["IP", "ISP", "Country", "Detections"//,"Client Name"
+  ];
   useResolvedIP = false;
 } else {
   // Mixed IPs + URLs
-  headerTitles = ["IP/URL", "Resolved IP", "ISP", "Country", "Detections","Client Name"];
+  headerTitles = ["IP/URL", "Resolved IP", "ISP", "Country", "Detections"//,"Client Name"
+  ];
   useResolvedIP = true;
 }
 
@@ -213,17 +216,21 @@ if (data.column_label === "URL") {
 
       if (data.column_label === "IP") {
         // Only IPs → no Resolved IP column
-        cells = [inputValue, isp, country, detections,clientName];
+        cells = [inputValue, isp, country, detections,//clientName
+        ];
       } else if (data.column_label === "URL") {
         // Only URLs → show Resolved IP
-        cells = [inputValue, resolvedIP || "-", isp, country, detections,clientName];
+        cells = [inputValue, resolvedIP || "-", isp, country, detections,//clientName
+      ];
       } else {
         // Mixed input → if resolvedIP is different, it's a URL
         const isURL = resolvedIP && resolvedIP !== "-" && resolvedIP !== inputValue;
         if (isURL) {
-          cells = [inputValue, resolvedIP, isp, country, detections,clientName];
+          cells = [inputValue, resolvedIP, isp, country, detections,//clientName
+          ];
         } else {
-          cells = [inputValue, "-", isp, country, detections,clientName];
+          cells = [inputValue, "-", isp, country, detections,//clientName
+          ];
         }
       }
 
@@ -309,7 +316,7 @@ function copyTableToClipboard(btnId) {
 
 // Download Excel file
 function downloadExcel() {
-const clientName = document.getElementById("clientName").value.trim();
+//const clientName = document.getElementById("clientName").value.trim();
 
   fetch("/download_excel", {
     method: "POST",
@@ -318,7 +325,7 @@ const clientName = document.getElementById("clientName").value.trim();
       table_data: window._latestTable || [],
       summary: window._latestSummary || "",
       column_label: window._columnLabel || "IP",
-      client_name: clientName || "N/A"
+      //client_name: clientName || "N/A"
     })
   })
   .then(resp => resp.blob())
