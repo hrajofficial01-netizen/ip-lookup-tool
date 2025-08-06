@@ -4,6 +4,7 @@ from sqlalchemy import Column, String, Integer, DateTime, PrimaryKeyConstraint
 from sqlalchemy.sql import func
 from db import Base
 
+
 class LookupData(Base):
     __tablename__ = "lookup_data"
 
@@ -14,6 +15,7 @@ class LookupData(Base):
     country          = Column(String,  nullable=True)
     detection_count  = Column(Integer, nullable=False, default=0)
     associated_ip    = Column(String,  nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 class SearchLog(Base):
     __tablename__ = "search_log"
