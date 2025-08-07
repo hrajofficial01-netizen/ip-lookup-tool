@@ -14,6 +14,9 @@ class LookupData(Base):
     asn              = Column(String,  nullable=True)
     country          = Column(String,  nullable=True)
     detection_count  = Column(Integer, nullable=False, default=0)
+    threat_actor = Column(String, nullable=True)       # or String if JSON not supported
+    campaign_name = Column(String, nullable=True)
+    malware_families = Column(String, nullable=True)
     associated_ip    = Column(String,  nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 

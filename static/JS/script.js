@@ -192,17 +192,17 @@ summaryDiv.innerHTML = data.summary;
 if (data.column_label === "URL") {
   // Only URLs provided
   headerTitles = ["URL", "Resolved IP", "ISP", "Country", "Detections"//,"Client Name"
-  ];
+  ,"Threat Actor", "Campaign Name", "Malware Families"];
   useResolvedIP = true;
 } else if (data.column_label === "IP") {
   // Only IPs provided
   headerTitles = ["IP", "ISP", "Country", "Detections"//,"Client Name"
-  ];
+  ,"Threat Actor", "Campaign Name", "Malware Families"];
   useResolvedIP = false;
 } else {
   // Mixed IPs + URLs
   headerTitles = ["IP/URL", "Resolved IP", "ISP", "Country", "Detections"//,"Client Name"
-  ];
+  ,"Threat Actor", "Campaign Name", "Malware Families"];
   useResolvedIP = true;
 }
 
@@ -214,41 +214,61 @@ if (data.column_label === "URL") {
     }
     tableHead.appendChild(headerRow);
 
-        tableBody.innerHTML = "";
-      for (const row of data.raw_table || []) {
-        const [inputValue, resolvedIP, isp, country, detections] = row;
+       tableBody.innerHTML = "";
+for (const row of data.raw_table || []) {
+  // Add the new fields in destructuring, maintaining the previous order
+  // Assuming your backend appends these fields after 'detections' (which is index 4)
+  const [
+    inputValue,
+    resolvedIP,
+    isp,
+    country,
+    detections,
+    threatActorRaw,
+    campaignNameRaw,
+    malwareFamiliesRaw,
+    // If there are more fields later, ignore here or adjust accordingly
+  ] = row;
 
-      let cells = [];
+  // Helper to convert array or null/undefined to string for display
+  function formatField(field) {
+    if (!field) return "-";
+    if (Array.isArray(field)) return field.join(", ");
+    return field.toString();
+  }
 
-      if (data.column_label === "IP") {
-        // Only IPs → no Resolved IP column
-        cells = [inputValue, isp, country, detections,//clientName
-        ];
-      } else if (data.column_label === "URL") {
-        // Only URLs → show Resolved IP
-        cells = [inputValue, resolvedIP || "-", isp, country, detections,//clientName
-      ];
-      } else {
-        // Mixed input → if resolvedIP is different, it's a URL
-        const isURL = resolvedIP && resolvedIP !== "-" && resolvedIP !== inputValue;
-        if (isURL) {
-          cells = [inputValue, resolvedIP, isp, country, detections,//clientName
-          ];
-        } else {
-          cells = [inputValue, "-", isp, country, detections,//clientName
-          ];
-        }
-      }
+  const threatActor = formatField(threatActorRaw);
+  const campaignName = formatField(campaignNameRaw);
+  const malwareFamilies = formatField(malwareFamiliesRaw);
 
-      const tr = document.createElement("tr");
-      for (const cell of cells) {
-        const td = document.createElement("td");
-        td.innerText = cell;
-        td.className = "border px-3 py-1 text-center";
-        tr.appendChild(td);
-      }
-      tableBody.appendChild(tr);
+  let cells = [];
+
+  if (data.column_label === "IP") {
+    // Only IPs → no Resolved IP column
+    cells = [inputValue, isp, country, detections, threatActor, campaignName, malwareFamilies];
+  } else if (data.column_label === "URL") {
+    // Only URLs → show Resolved IP
+    cells = [inputValue, resolvedIP || "-", isp, country, detections, threatActor, campaignName, malwareFamilies];
+  } else {
+    // Mixed input → if resolvedIP is different, it's a URL
+    const isURL = resolvedIP && resolvedIP !== "-" && resolvedIP !== inputValue;
+    if (isURL) {
+      cells = [inputValue, resolvedIP, isp, country, detections, threatActor, campaignName, malwareFamilies];
+    } else {
+      cells = [inputValue, "-", isp, country, detections, threatActor, campaignName, malwareFamilies];
     }
+  }
+
+  const tr = document.createElement("tr");
+  for (const cell of cells) {
+    const td = document.createElement("td");
+    td.innerText = cell;
+    td.className = "border px-3 py-1 text-center";
+    tr.appendChild(td);
+  }
+  tableBody.appendChild(tr);
+}
+
 
     summarySection.classList.remove("hidden");
     tableSection.classList.remove("hidden");

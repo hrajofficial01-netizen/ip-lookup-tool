@@ -18,7 +18,8 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from iso3166 import countries
-
+from tie_service import get_ip_tie_data, get_domain_tie_data, extract_enrichment_fields
+from concurrent.futures import ThreadPoolExecutor
 from db import SessionLocal
 from models import LookupData, SearchLog
 
@@ -53,14 +54,19 @@ def upsert_lookup_data(result):
     """
     session = SessionLocal()
     try:
-        entry      = result["ip"]
-        entry_type = result.get("type", "IP").lower()
+        entry       = result["ip"]
+        entry_type  = result.get("type", "IP").lower()
         # these fields come from get_ip_info or lookup_url
-        isp            = result.get("isp", "")
-        asn            = result.get("asn", "")
-        country        = result.get("country", "")
-        detection_count= result.get("detections", 0)
-        associated_ip  = result.get("resolved_ip") or ""
+        isp             = result.get("isp", "")
+        asn             = result.get("asn", "")
+        country         = result.get("country", "")
+        detection_count = result.get("detections", 0)
+        associated_ip   = result.get("resolved_ip") or ""
+        
+        # New enrichment fields
+        threat_actor     = result.get("threat_actor")
+        campaign_name    = result.get("campaign_name")
+        malware_families = result.get("malware_families")
 
         existing = session.get(LookupData, entry)
         if not existing:
@@ -71,12 +77,16 @@ def upsert_lookup_data(result):
                 asn=asn,
                 country=country,
                 detection_count=detection_count,
-                associated_ip=associated_ip
+                associated_ip=associated_ip,
+                threat_actor=threat_actor,
+                campaign_name=campaign_name,
+                malware_families=malware_families
             )
             session.add(new)
             session.commit()
     except Exception:
         session.rollback()
+        raise  # Optionally raise to track errors
     finally:
         session.close()
 
@@ -524,10 +534,10 @@ def get_ip_info(ip):
 
         except Exception:
             ip_info["status_codes"]["APIVoid"] = "Error"
-    ip_info["summary"] = (
-        f"The IP: {ip_info['ip']} belongs to ISP: {ip_info['isp'] or 'N/A'}, "
-        f"from Country: {ip_info['country'] or 'N/A'}, with Detection count: {ip_info['detections']}/93."
-    )
+    #ip_info["summary"] = (
+     #   f"The IP: {ip_info['ip']} belongs to ISP: {ip_info['isp'] or 'N/A'}, "
+      #  f"from Country: {ip_info['country'] or 'N/A'}, with Detection count: {ip_info['detections']}/93."
+    #)
     
     return ip_info
 
@@ -562,10 +572,10 @@ def lookup_url(url):
         # HTTP status codes from VT URL submit & report
         "status_codes": vt_data.get("status_codes", {}),
 
-        "summary": (
-            f"The URL: {url} was scanned by VirusTotal with {detections} malicious detections."
-            + (f" Categories: {', '.join(vt_data.get('categories', []))}." if vt_data.get('categories') else "")
-        )
+        #"summary": (
+        #    f"The URL: {url} has {detections} malicious detections."
+         #   + (f" Categories: {', '.join(vt_data.get('categories', []))}." if vt_data.get('categories') else "")
+       # )
     }
    
 
@@ -600,66 +610,145 @@ def handle_ip_lookup():
         if len(valid_entries) >= 100:
             break
 
+    from tie_service import get_ip_tie_data, get_domain_tie_data, extract_enrichment_fields
+    from concurrent.futures import ThreadPoolExecutor
+
+    from tie_service import run_parallel_tie_calls, extract_enrichment_fields
+
+    from tie_service import get_ip_tie_data, get_domain_tie_data, extract_enrichment_fields
+    def serialize_field(value):
+        if value is None:
+            return None
+        if isinstance(value, list):
+            return ", ".join(str(item) for item in value)
+        if isinstance(value, dict):
+            return ", ".join(f"{k}: {v}" for k, v in value.items())
+        return str(value)
+
+    
+    def build_summary(data, entry_type):
+        def is_meaningful(value):
+            if value is None:
+                return False
+            if isinstance(value, str):
+                return value.strip().lower() not in ("", "n/a", "-")
+            return True
+
+        ioc_parts = []
+        for field, label in [
+            ("threat_actor", "threat actor"),
+            ("campaign_name", "campaign name"),
+            ("malware_families", "malware family"),
+        ]:
+            val = data.get(field)
+            if is_meaningful(val):
+                ioc_parts.append(f"{label}: {val}")
+
+        ioc_summary = ""
+        if ioc_parts:
+            ioc_summary = f" IOC Details: The {'URL' if entry_type == 'url' else 'IP'} is associated with " + ", ".join(ioc_parts) + "."
+
+        if entry_type == "url":
+            categories = data.get("categories", [])
+            category_str = f" Categories: {', '.join(categories)}." if categories else ""
+            summary = (
+                f"The URL: {data.get('query')} has {data.get('detections', 0)} malicious detections."
+                + category_str
+                + ioc_summary
+            )
+        else:  # IP
+            summary = (
+                f"The IP: {data.get('ip')} belongs to ISP: {data.get('isp') or 'N/A'}, "
+                f"from Country: {data.get('country') or 'N/A'}, with Detection count: {data.get('detections', 0)}/93."
+                + ioc_summary
+            )
+
+        return summary
+
+
     def resolve_entry(e, client_name=client_name, timestamp_ist=None):
         session = SessionLocal()
         try:
             record = session.query(LookupData).filter_by(entry=e).first()
+            if record:
+                used_services.add("Database")
+
 
             if record:
-                # Update or insert into SearchLog
-                search_log = session.query(SearchLog).filter_by(entry=e, client_name=client_name).first()
-                now = timestamp_ist or datetime.now()
+                # Prepare return dict from DB record
+                data = {
+                    "ip": record.associated_ip if record.entry_type == "url" else record.entry,
+                    "query": record.entry,
+                    "resolved_ip": record.associated_ip if record.entry_type == "url" else "-",
+                    "isp": record.isp or "",
+                    "asn": record.asn or "",
+                    "country": record.country or "",
+                    "detections": record.detection_count or 0,
+                    "threat_actor": record.threat_actor or "-",
+                    "campaign_name": record.campaign_name or "-",
+                    "malware_families": record.malware_families or "-",
+                    "service_sources": {
+                        "isp": "Database",
+                        "asn": "Database",
+                        "country": "Database",
+                        "detections": "Database"
+                    },
+                    "used_service": "Database",
+                    "used_key": "N/A",
+                    "status_codes": {"Database": 200},
+                    "entry_type": record.entry_type,
+                }
 
-                if search_log:
-                    search_log.last_searched = now
-                else:
-                    new_log = SearchLog(
-                        entry=e,
-                        client_name=client_name,
-                        first_searched=now,
-                        last_searched=now,
-                        lookup_count=1
-                    )
-                    session.add(new_log)
-                session.commit()
+                data["summary"] = build_summary(data, record.entry_type)
+                return data
 
-                used_services.add("Database")
-                if record:
-                    return {
-                        "ip": record.associated_ip if record.entry_type == "url" else record.entry,
-                        "query": record.entry,  # add this line
-                        "resolved_ip": record.associated_ip if record.entry_type == "url" else "-",  # add this line
-                        "isp": record.isp or "",
-                        "asn": record.asn or "",
-                        "country": record.country or "",
-                        "detections": record.detection_count or 0,
-                        "service_sources": {
-                            "isp": "Database",
-                            "asn": "Database",
-                            "country": "Database",
-                            "detections": "Database"
-                        },
-                        "used_service": "Database",
-                        "used_key": "N/A",
-                        "status_codes": {"Database": 200},
-                        "summary": (
-                            f"The {'URL' if record.entry_type == 'url' else 'IP'}: {e} belongs to ISP: {record.isp or 'N/A'}, from Country: {record.country or 'N/A'}, with Detection count: {record.detection_count or 0}/93."
-                        )
-                    }
-
-
-                
-            # Not found in DB, live lookup
-            if is_valid_public_ip(e):
-                return get_ip_info(e)
-            elif is_valid_url(e):
-                return lookup_url(e)
             else:
-                return None
-        except Exception as ex:
-            session.rollback()
-            print(f"❌ DB error during resolve_entry({e}): {ex}")
-            return None
+                # Live lookup (IP or URL), merge enrichment as you currently do
+                if is_valid_public_ip(e):
+                    with ThreadPoolExecutor(max_workers=2) as executor:
+                        vt_future = executor.submit(get_ip_info, e)
+                        tie_future = executor.submit(get_ip_tie_data, e)
+                        vt_result = vt_future.result()
+                        tie_result = tie_future.result()
+
+                    if tie_result and tie_result.get("data"):
+                        enrichment = extract_enrichment_fields(tie_result)
+                        used_services.add("ThreatIntel")
+                    else:
+                        enrichment = {"threat_actor": None, "campaign_name": None, "malware_families": None}
+
+                    for key in ["threat_actor", "campaign_name", "malware_families"]:
+                        enrichment_value = enrichment.get(key)
+                        vt_result[key] = serialize_field(enrichment_value)
+
+                    vt_result["entry_type"] = "ip"
+                    vt_result["summary"] = build_summary(vt_result, "ip")
+
+                    return vt_result
+
+                elif is_valid_url(e):
+                    with ThreadPoolExecutor(max_workers=2) as executor:
+                        vt_future = executor.submit(lookup_url, e)
+                        tie_future = executor.submit(get_domain_tie_data, e)
+                        vt_result = vt_future.result()
+                        tie_result = tie_future.result()
+
+                    enrichment = extract_enrichment_fields(tie_result)
+                    if tie_result and "data" in tie_result and tie_result["data"]:
+                        used_services.add("ThreatIntel")
+
+                    for key in ["threat_actor", "campaign_name", "malware_families"]:
+                        enrichment_value = enrichment.get(key)
+                        vt_result[key] = serialize_field(enrichment_value)
+
+                    vt_result["entry_type"] = "url"
+                    vt_result["summary"] = build_summary(vt_result, "url")
+
+                    return vt_result
+
+                else:
+                    return None
+
         finally:
             session.close()
 
@@ -709,7 +798,9 @@ def handle_ip_lookup():
         resolved = r.get("resolved_ip") or "-"
         isp, ctr = r.get("isp", ""), r.get("country", "")
         det = r.get("detections", 0)
-
+        threat_actor_str = ", ".join(r.get("threat_actor", [])) if isinstance(r.get("threat_actor"), list) else (r.get("threat_actor") or "-")
+        campaign_name_str = ", ".join(r.get("campaign_name", [])) if isinstance(r.get("campaign_name"), list) else (r.get("campaign_name") or "-")
+        malware_families_str = ", ".join(r.get("malware_families", [])) if isinstance(r.get("malware_families"), list) else (r.get("malware_families") or "-")
         table_rows += (
             f"<tr>"
             f"<td>{ip_or_url}</td>"
@@ -717,12 +808,25 @@ def handle_ip_lookup():
             f"<td>{isp}</td>"
             f"<td>{ctr}</td>"
             f"<td>{det}</td>"
+            f"<td>{threat_actor_str}</td>"
+            f"<td>{campaign_name_str}</td>"
+            f"<td>{malware_families_str}</td>"
             #f"<td>{client_name}</td>"
             f"</tr>"
         )
-        raw_table.append([ip_or_url, resolved, isp, ctr, det,
-                          #client_name, 
-                          r.get("used_key"), timestamp_ist])
+        raw_table.append([
+            ip_or_url,
+            resolved,
+            isp,
+            ctr,
+            det,
+            r.get("threat_actor") or "-",      # new field
+            r.get("campaign_name") or "-",     # new field
+            r.get("malware_families") or "-",  # new field
+            r.get("used_key"),
+            timestamp_ist
+        ])
+
 
 
     summary_lines = []
@@ -733,7 +837,7 @@ def handle_ip_lookup():
     summary_text = "\n".join(summary_lines)
 
     elapsed = round(time.time() - start, 2)
-    unused_services.update({"VirusTotal", "AbuseIPDB", "DBIP", "IPINFO", "APIVoid", "Database"} - used_services)
+    unused_services.update({"VirusTotal", "AbuseIPDB", "DBIP", "IPINFO", "APIVoid", "Database","ThreatIntel"} - used_services)
 
     vt_ok = vt_keys_used & vt_keys_success
     vt_bad = exhausted_vt_keys.copy()
@@ -742,8 +846,8 @@ def handle_ip_lookup():
     print("\n📊 API USAGE SUMMARY")
     print(f"⏰ Search Timestamp (IST): {timestamp_ist}")
     print(f"✅ Data found for {len(valid_entries)} entr{'y' if len(valid_entries) == 1 else 'ies'} in {elapsed} seconds.")
-    print(f"🔧 Services Used     : {', '.join(sorted(used_services)) or 'None'}")
-    print(f"⚪ Services Unused   : {', '.join(sorted(unused_services)) or 'None'}")
+    print(f"🔧 Services Used     : {', '.join(sorted(s for s in used_services if s is not None)) or 'None'}")
+    print(f"🔧 Services Unused     : {', '.join(sorted(s for s in unused_services if s is not None)) or 'None'}")
     print(f"✅ Successfully Used VT Keys: {len(vt_ok)}")
     for k in vt_ok:
         print(f"    {mask_key(k)}")
@@ -842,10 +946,10 @@ def download_excel():
 
     headers = (
         [column_label, "Resolved IP", "ISP", "Country", "Detections"#, "Client Name"
-         ]
+          ,"Threat Actor", "Campaign Name", "Malware Families"]
         if has_resolved_ip
         else [column_label, "ISP", "Country", "Detections"#,"Client Name"
-              ]
+             , "Threat Actor", "Campaign Name", "Malware Families"]
     )
     ws_table.append(headers)
 
@@ -855,8 +959,11 @@ def download_excel():
         isp = row[2]
         country = row[3]
         detections = row[4]
-        client_name_in_row = row[5] if len(row) > 5 else "Unknown"
-
+        threat_actor = row[5] if len(row) > 6 else "N/A"
+        campaign_name = row[6] if len(row) > 7 else "N/A"
+        malware_families = row[7] if len(row) > 8 else "N/A"
+        client_name_in_row = row[8] if len(row) > 5 else "Unknown"
+        
         if resolved_ip and resolved_ip not in ("-", "", "None") and resolved_ip != ip_or_url:
             display_value = f"{ip_or_url}"
         else:
@@ -864,10 +971,10 @@ def download_excel():
 
         if has_resolved_ip:
             ws_table.append([display_value, resolved_ip, isp, country, detections#, client_name_in_row
-                             ])
+                             ,threat_actor,campaign_name,malware_families])
         else:
             ws_table.append([display_value, isp, country, detections#, client_name_in_row
-                             ])
+                             ,threat_actor,campaign_name,malware_families])
 
     # Formatting styles
     bold_font = Font(bold=True)
