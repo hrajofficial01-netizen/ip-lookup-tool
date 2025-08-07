@@ -1,12 +1,18 @@
 
 
 // Stricter IPv4 and basic IPv6 format validation
+// If you're using modules (npm/yarn)
+
+// Or, if loaded via CDN, ipaddr is a global object
 
 function isValidIP(ip) {
-  const ipv4 = /^(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)){3}$/;
-  const ipv6 = /^(([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|::1)$/;
-  return ipv4.test(ip) || ipv6.test(ip);
+  try {
+    return ipaddr.isValid(ip);
+  } catch {
+    return false;
+  }
 }
+
 
 // Check if IP is private/reserved (basic IPv4 only)
 function isPrivateIP(ip) {
