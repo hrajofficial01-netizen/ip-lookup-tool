@@ -192,17 +192,17 @@ summaryDiv.innerHTML = data.summary;
 if (data.column_label === "URL") {
   // Only URLs provided
   headerTitles = ["URL", "Resolved IP", "ISP", "Country", "Detections"//,"Client Name"
-  ,"Threat Actor", "Campaign Name", "Malware Families"];
+  ,"Threat Actor", "Campaign Name", "Malware Family"];
   useResolvedIP = true;
 } else if (data.column_label === "IP") {
   // Only IPs provided
   headerTitles = ["IP", "ISP", "Country", "Detections"//,"Client Name"
-  ,"Threat Actor", "Campaign Name", "Malware Families"];
+  ,"Threat Actor", "Campaign Name", "Malware Family"];
   useResolvedIP = false;
 } else {
   // Mixed IPs + URLs
   headerTitles = ["IP/URL", "Resolved IP", "ISP", "Country", "Detections"//,"Client Name"
-  ,"Threat Actor", "Campaign Name", "Malware Families"];
+  ,"Threat Actor", "Campaign Name", "Malware Family"];
   useResolvedIP = true;
 }
 
