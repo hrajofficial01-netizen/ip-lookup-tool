@@ -191,20 +191,21 @@ summaryDiv.innerHTML = data.summary;
 
 if (data.column_label === "URL") {
   // Only URLs provided
-  headerTitles = ["URL", "Resolved IP", "ISP", "Country", "Detections"//,"Client Name"
-  ,"Threat Actor", "Campaign Name", "Malware Family"];
+  headerTitles = ["URL", "Resolved IP", "ISP", "Country", "Detections"
+  ,"Threat Actor", "Country Origin", "Target Sector", "Threat Category","Campaign Name", "Malware Family"];
   useResolvedIP = true;
 } else if (data.column_label === "IP") {
   // Only IPs provided
-  headerTitles = ["IP", "ISP", "Country", "Detections"//,"Client Name"
-  ,"Threat Actor", "Campaign Name", "Malware Family"];
-  useResolvedIP = false;
+  headerTitles = ["IP", "ISP", "Country", "Detections"
+  ,"Threat Actor", "Country Origin", "Target Sector", "Threat Category","Campaign Name", "Malware Family"];
+  useResolvedIP = false;  // <-- 🚨 HERE
 } else {
   // Mixed IPs + URLs
-  headerTitles = ["IP/URL", "Resolved IP", "ISP", "Country", "Detections"//,"Client Name"
-  ,"Threat Actor", "Campaign Name", "Malware Family"];
+  headerTitles = ["IP/URL", "Resolved IP", "ISP", "Country", "Detections"
+  ,"Threat Actor","Country Origin", "Target Sector", "Threat Category", "Campaign Name", "Malware Family"];
   useResolvedIP = true;
 }
+
 
    for (const title of headerTitles) {
       const th = document.createElement("th");
@@ -225,6 +226,9 @@ for (const row of data.raw_table || []) {
     country,
     detections,
     threatActorRaw,
+    countryOriginRaw,
+    targetSectorRaw,
+    threatCategoryRaw,
     campaignNameRaw,
     malwareFamiliesRaw,
     // If there are more fields later, ignore here or adjust accordingly
@@ -240,22 +244,25 @@ for (const row of data.raw_table || []) {
   const threatActor = formatField(threatActorRaw);
   const campaignName = formatField(campaignNameRaw);
   const malwareFamilies = formatField(malwareFamiliesRaw);
+  const countryOrigin = formatField(countryOriginRaw);
+  const targetSector = formatField(targetSectorRaw);
+  const threatCategory = formatField(threatCategoryRaw);
 
   let cells = [];
 
   if (data.column_label === "IP") {
     // Only IPs → no Resolved IP column
-    cells = [inputValue, isp, country, detections, threatActor, campaignName, malwareFamilies];
+    cells = [inputValue, isp, country, detections, threatActor,countryOrigin, targetSector, threatCategory, campaignName, malwareFamilies];
   } else if (data.column_label === "URL") {
     // Only URLs → show Resolved IP
-    cells = [inputValue, resolvedIP || "-", isp, country, detections, threatActor, campaignName, malwareFamilies];
+    cells = [inputValue, resolvedIP || "-", isp, country, detections, threatActor,countryOrigin, targetSector, threatCategory, campaignName, malwareFamilies];
   } else {
     // Mixed input → if resolvedIP is different, it's a URL
     const isURL = resolvedIP && resolvedIP !== "-" && resolvedIP !== inputValue;
     if (isURL) {
-      cells = [inputValue, resolvedIP, isp, country, detections, threatActor, campaignName, malwareFamilies];
+      cells = [inputValue, resolvedIP, isp, country, detections, threatActor,countryOrigin, targetSector, threatCategory, campaignName, malwareFamilies];
     } else {
-      cells = [inputValue, "-", isp, country, detections, threatActor, campaignName, malwareFamilies];
+      cells = [inputValue, "-", isp, country, detections, threatActor,countryOrigin, targetSector, threatCategory, campaignName, malwareFamilies];
     }
   }
 

@@ -12,6 +12,7 @@ import requests
 import pytz
 from flask import Flask, request, jsonify, send_file, render_template
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from tie_service import get_ip_tie_data, get_domain_tie_data, extract_enrichment_fields, get_actor_info_from_entry
 
 from dotenv import load_dotenv
 from openpyxl import Workbook
@@ -68,6 +69,11 @@ def upsert_lookup_data(result):
         campaign_name    = result.get("campaign_name")
         malware_families = result.get("malware_families")
 
+        # New enrichment fields from second api call
+        country_origin = result.get("country_origin")
+        target_sector = result.get("target_sector")
+        threat_category = result.get("threat_category")
+        
         existing = session.get(LookupData, entry)
         if not existing:
             new = LookupData(
@@ -80,7 +86,11 @@ def upsert_lookup_data(result):
                 associated_ip=associated_ip,
                 threat_actor=threat_actor,
                 campaign_name=campaign_name,
-                malware_families=malware_families
+                malware_families=malware_families,
+                country_origin=country_origin,
+                target_sector=target_sector,
+                threat_category=threat_category,
+                
             )
             session.add(new)
             session.commit()
@@ -639,6 +649,9 @@ def handle_ip_lookup():
             ("threat_actor", "threat actor"),
             ("campaign_name", "campaign name"),
             ("malware_families", "malware family"),
+            ("country_origin", "country origin"),      # new
+            ("target_sector", "target sector"),        # new
+            ("threat_category", "threat category"),    # new
         ]:
             val = data.get(field)
             if is_meaningful(val):
@@ -671,7 +684,7 @@ def handle_ip_lookup():
         try:
             record = session.query(LookupData).filter_by(entry=e).first()
             if record:
-                
+
                 # Update or insert into SearchLog
                 search_log = session.query(SearchLog).filter_by(entry=e, client_name=client_name).first()
                 now = timestamp_ist or datetime.now()
@@ -690,7 +703,6 @@ def handle_ip_lookup():
                 session.commit()
                 used_services.add("Database")
 
-
             if record:
                 # Prepare return dict from DB record
                 data = {
@@ -704,6 +716,9 @@ def handle_ip_lookup():
                     "threat_actor": record.threat_actor or "-",
                     "campaign_name": record.campaign_name or "-",
                     "malware_families": record.malware_families or "-",
+                    "country_origin": record.country_origin or "-",
+                    "target_sector": record.target_sector or "-",
+                    "threat_category": record.threat_category or "-",
                     "service_sources": {
                         "isp": "Database",
                         "asn": "Database",
@@ -715,26 +730,50 @@ def handle_ip_lookup():
                     "status_codes": {"Database": 200},
                     "entry_type": record.entry_type,
                 }
-
                 data["summary"] = build_summary(data, record.entry_type)
                 return data
 
             else:
-                # Live lookup (IP or URL), merge enrichment as you currently do
+                # Live lookup (IP or URL), merge enrichment as you currently do,
+                # but enhance by calling get_actor_info_from_entry for actor details enrichment
                 if is_valid_public_ip(e):
-                    with ThreadPoolExecutor(max_workers=2) as executor:
+                    with ThreadPoolExecutor(max_workers=3) as executor:
                         vt_future = executor.submit(get_ip_info, e)
                         tie_future = executor.submit(get_ip_tie_data, e)
+                        actor_info_future = executor.submit(get_actor_info_from_entry, e, "ip")
                         vt_result = vt_future.result()
                         tie_result = tie_future.result()
+                        actor_details = actor_info_future.result()
 
                     if tie_result and tie_result.get("data"):
                         enrichment = extract_enrichment_fields(tie_result)
                         used_services.add("ThreatIntel")
                     else:
-                        enrichment = {"threat_actor": None, "campaign_name": None, "malware_families": None}
+                        enrichment = {
+                            "threat_actor": None,
+                            "campaign_name": None,
+                            "malware_families": None,
+                            "country_origin": None,
+                            "target_sector": None,
+                            "threat_category": None,
+                        }
 
-                    for key in ["threat_actor", "campaign_name", "malware_families"]:
+                    # Merge actor_details (second API) enrichment fields if available
+                    if actor_details:
+                        enrichment.update({
+                            "country_origin": actor_details.get("country_origin", enrichment.get("country_origin")),
+                            "target_sector": actor_details.get("target_sector", enrichment.get("target_sector")),
+                            "threat_category": actor_details.get("threat_category", enrichment.get("threat_category")),
+                        })
+
+                    for key in [
+                        "threat_actor",
+                        "campaign_name",
+                        "malware_families",
+                        "country_origin",
+                        "target_sector",
+                        "threat_category"
+                    ]:
                         enrichment_value = enrichment.get(key)
                         vt_result[key] = serialize_field(enrichment_value)
 
@@ -744,17 +783,43 @@ def handle_ip_lookup():
                     return vt_result
 
                 elif is_valid_url(e):
-                    with ThreadPoolExecutor(max_workers=2) as executor:
+                    with ThreadPoolExecutor(max_workers=3) as executor:
                         vt_future = executor.submit(lookup_url, e)
                         tie_future = executor.submit(get_domain_tie_data, e)
+                        actor_info_future = executor.submit(get_actor_info_from_entry, e, "url")
                         vt_result = vt_future.result()
                         tie_result = tie_future.result()
+                        actor_details = actor_info_future.result()
 
-                    enrichment = extract_enrichment_fields(tie_result)
                     if tie_result and "data" in tie_result and tie_result["data"]:
                         used_services.add("ThreatIntel")
+                        enrichment = extract_enrichment_fields(tie_result)
+                    else:
+                        enrichment = {
+                            "threat_actor": None,
+                            "campaign_name": None,
+                            "malware_families": None,
+                            "country_origin": None,
+                            "target_sector": None,
+                            "threat_category": None,
+                        }
 
-                    for key in ["threat_actor", "campaign_name", "malware_families"]:
+                    # Merge second API call actor details into enrichment
+                    if actor_details:
+                        enrichment.update({
+                            "country_origin": actor_details.get("country_origin", enrichment.get("country_origin")),
+                            "target_sector": actor_details.get("target_sector", enrichment.get("target_sector")),
+                            "threat_category": actor_details.get("threat_category", enrichment.get("threat_category")),
+                        })
+
+                    for key in [
+                        "threat_actor",
+                        "campaign_name",
+                        "malware_families",
+                        "country_origin",
+                        "target_sector",
+                        "threat_category"
+                    ]:
                         enrichment_value = enrichment.get(key)
                         vt_result[key] = serialize_field(enrichment_value)
 
@@ -816,8 +881,13 @@ def handle_ip_lookup():
         isp, ctr = r.get("isp", ""), r.get("country", "")
         det = r.get("detections", 0)
         threat_actor_str = ", ".join(r.get("threat_actor", [])) if isinstance(r.get("threat_actor"), list) else (r.get("threat_actor") or "-")
+        country_origin_str = ", ".join(r.get("country_origin", [])) if isinstance(r.get("country_origin"), list) else (r.get("country_origin") or "-")
+        target_sector_str = ", ".join(r.get("target_sector", [])) if isinstance(r.get("target_sector"), list) else (r.get("target_sector") or "-")
+        threat_category_str = ", ".join(r.get("threat_category", [])) if isinstance(r.get("threat_category"), list) else (r.get("threat_category") or "-")
         campaign_name_str = ", ".join(r.get("campaign_name", [])) if isinstance(r.get("campaign_name"), list) else (r.get("campaign_name") or "-")
         malware_families_str = ", ".join(r.get("malware_families", [])) if isinstance(r.get("malware_families"), list) else (r.get("malware_families") or "-")
+        # Add for new fields:
+     
         table_rows += (
             f"<tr>"
             f"<td>{ip_or_url}</td>"
@@ -826,6 +896,9 @@ def handle_ip_lookup():
             f"<td>{ctr}</td>"
             f"<td>{det}</td>"
             f"<td>{threat_actor_str}</td>"
+            f"<td>{country_origin_str}</td>"       # new
+            f"<td>{target_sector_str}</td>"         # new
+            f"<td>{threat_category_str}</td>"       # new
             f"<td>{campaign_name_str}</td>"
             f"<td>{malware_families_str}</td>"
             #f"<td>{client_name}</td>"
@@ -838,6 +911,9 @@ def handle_ip_lookup():
             ctr,
             det,
             r.get("threat_actor") or "-",      # new field
+            r.get("country_origin") or "-",       # new
+            r.get("target_sector") or "-",        # new
+            r.get("threat_category") or "-",      # new
             r.get("campaign_name") or "-",     # new field
             r.get("malware_families") or "-",  # new field
             r.get("used_key"),
@@ -963,10 +1039,10 @@ def download_excel():
 
     headers = (
         [column_label, "Resolved IP", "ISP", "Country", "Detections"#, "Client Name"
-          ,"Threat Actor", "Campaign Name", "Malware Families"]
+          ,"Threat Actor","Country Of Origin", "Target Sector", "Threat Category", "Campaign Name", "Malware Families"]
         if has_resolved_ip
         else [column_label, "ISP", "Country", "Detections"#,"Client Name"
-             , "Threat Actor", "Campaign Name", "Malware Families"]
+             , "Threat Actor","Country Of Origin", "Target Sector", "Threat Category", "Campaign Name", "Malware Families"]
     )
     ws_table.append(headers)
 
@@ -977,9 +1053,12 @@ def download_excel():
         country = row[3]
         detections = row[4]
         threat_actor = row[5] if len(row) > 6 else "N/A"
-        campaign_name = row[6] if len(row) > 7 else "N/A"
-        malware_families = row[7] if len(row) > 8 else "N/A"
-        client_name_in_row = row[8] if len(row) > 5 else "Unknown"
+        country_origin = row[6] if len(row) > 6 else "N/A"
+        target_sector = row[7] if len(row) > 7 else "N/A"
+        threat_category = row[8] if len(row) > 8 else "N/A"
+        campaign_name = row[9] if len(row) > 7 else "N/A"
+        malware_families = row[10] if len(row) > 8 else "N/A"
+        client_name_in_row = row[11] if len(row) > 5 else "Unknown"
         
         if resolved_ip and resolved_ip not in ("-", "", "None") and resolved_ip != ip_or_url:
             display_value = f"{ip_or_url}"
@@ -988,10 +1067,10 @@ def download_excel():
 
         if has_resolved_ip:
             ws_table.append([display_value, resolved_ip, isp, country, detections#, client_name_in_row
-                             ,threat_actor,campaign_name,malware_families])
+                             ,threat_actor,country_origin, target_sector, threat_category,campaign_name,malware_families])
         else:
             ws_table.append([display_value, isp, country, detections#, client_name_in_row
-                             ,threat_actor,campaign_name,malware_families])
+                             ,threat_actor,country_origin, target_sector, threat_category,campaign_name,malware_families])
 
     # Formatting styles
     bold_font = Font(bold=True)

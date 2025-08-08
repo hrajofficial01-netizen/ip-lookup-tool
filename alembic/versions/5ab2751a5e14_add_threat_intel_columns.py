@@ -11,7 +11,7 @@ from alembic import op
 import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
-revision = 'add_threat_intel_fields'
+revision = '5ab2751a5e14'
 down_revision = '8e75f52597be'  # Replace with your last migration revision ID
 branch_labels = None
 depends_on = None
