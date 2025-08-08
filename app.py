@@ -671,6 +671,23 @@ def handle_ip_lookup():
         try:
             record = session.query(LookupData).filter_by(entry=e).first()
             if record:
+                
+                # Update or insert into SearchLog
+                search_log = session.query(SearchLog).filter_by(entry=e, client_name=client_name).first()
+                now = timestamp_ist or datetime.now()
+
+                if search_log:
+                    search_log.last_searched = now
+                else:
+                    new_log = SearchLog(
+                        entry=e,
+                        client_name=client_name,
+                        first_searched=now,
+                        last_searched=now,
+                        lookup_count=1
+                    )
+                    session.add(new_log)
+                session.commit()
                 used_services.add("Database")
 
 
