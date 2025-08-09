@@ -28,3 +28,9 @@ SQLAlchemy==2.0.19
 psycopg2-binary==2.9.6
 alembic==1.16.4
 uvicorn==0.22.0
+google-cloud-storage
+google-cloud-bigquery
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
+psycopg2
