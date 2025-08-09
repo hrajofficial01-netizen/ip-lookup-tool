@@ -2,7 +2,9 @@ import os
 import json
 import time
 import requests
+from dotenv import load_dotenv
 
+load_dotenv()  # This loads variables from a .env file into the environment
 TOKENS_FILE = "tokens.json"   # File to persist tokens securely
 
 CLIENT_ID = os.environ["CLIENT_ID"]

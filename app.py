@@ -55,8 +55,18 @@ def upsert_lookup_data(result):
     """
     session = SessionLocal()
     try:
-        entry       = result["ip"]
-        entry_type  = result.get("type", "IP").lower()
+        entry_type = result.get("entry_type", result.get("type", "IP")).lower()
+
+        # Use correct source field
+        if entry_type == "url":
+            entry = (result.get("query") or result.get("ip") or "").strip().lower()
+            if not entry:
+                return  # don't insert when we have no valid URL/domain
+        else:
+            entry = result.get("ip", "").strip()
+            if not entry:
+                return  # don't insert when we have no valid IP
+
         # these fields come from get_ip_info or lookup_url
         isp             = result.get("isp", "")
         asn             = result.get("asn", "")
@@ -101,14 +111,20 @@ def upsert_lookup_data(result):
         session.close()
 
 
-def upsert_search_log(entry, client_name, timestamp):
+def upsert_search_log(entry, client_name, timestamp, entry_type=None):
     """
     For each search: increment lookup_count & update last_searched;
     if first time, create row with first_searched=last_searched=timestamp.
+    Always stores normalized lowercase URLs/domains.
     """
     session = SessionLocal()
     try:
-        pk = dict(entry=entry, client_name=client_name)
+        # 🔹 If we know the type and it's a URL, normalize
+        if entry_type and entry_type.lower() == "url" and entry:
+            entry = entry.lower()
+        # If no type provided, do a quick heuristic check for domain/URL
+        elif not entry_type and entry and "." in entry and not entry.replace(".", "").isdigit():
+            entry = entry.lower()
         existing = session.get(SearchLog, (entry, client_name))
         if existing:
             existing.lookup_count += 1
@@ -363,8 +379,9 @@ def is_valid_url(url):
         # Check TLD
         if not re.search(r"\.[a-zA-Z]{2,}$", hostname):
             return False
-
-        return True
+        
+     # ✅ Return lowercased version
+        return url.lower()
     except:
         return False
 
@@ -615,8 +632,13 @@ def handle_ip_lookup():
         if e in seen:
             continue
         seen.add(e)
-        if is_valid_public_ip(e) or is_valid_url(e):
+        if is_valid_public_ip(e):
             valid_entries.append(e)
+        else:
+            normalized = is_valid_url(e)
+            if normalized:
+                valid_entries.append(normalized)  # store lowercase form
+
         if len(valid_entries) >= 100:
             break
 
@@ -684,7 +706,6 @@ def handle_ip_lookup():
         try:
             record = session.query(LookupData).filter_by(entry=e).first()
             if record:
-
                 # Update or insert into SearchLog
                 search_log = session.query(SearchLog).filter_by(entry=e, client_name=client_name).first()
                 now = timestamp_ist or datetime.now()
@@ -703,7 +724,6 @@ def handle_ip_lookup():
                 session.commit()
                 used_services.add("Database")
 
-            if record:
                 # Prepare return dict from DB record
                 data = {
                     "ip": record.associated_ip if record.entry_type == "url" else record.entry,
@@ -731,11 +751,15 @@ def handle_ip_lookup():
                     "entry_type": record.entry_type,
                 }
                 data["summary"] = build_summary(data, record.entry_type)
+
+                # ✅ Normalize query for URLs from DB
+                if data.get("entry_type") == "url" and data.get("query"):
+                    data["query"] = data["query"].lower()
+
                 return data
 
             else:
-                # Live lookup (IP or URL), merge enrichment as you currently do,
-                # but enhance by calling get_actor_info_from_entry for actor details enrichment
+                # --- Live IP Lookup ---
                 if is_valid_public_ip(e):
                     with ThreadPoolExecutor(max_workers=3) as executor:
                         vt_future = executor.submit(get_ip_info, e)
@@ -758,7 +782,6 @@ def handle_ip_lookup():
                             "threat_category": None,
                         }
 
-                    # Merge actor_details (second API) enrichment fields if available
                     if actor_details:
                         enrichment.update({
                             "country_origin": actor_details.get("country_origin", enrichment.get("country_origin")),
@@ -782,6 +805,7 @@ def handle_ip_lookup():
 
                     return vt_result
 
+                # --- Live URL Lookup ---
                 elif is_valid_url(e):
                     with ThreadPoolExecutor(max_workers=3) as executor:
                         vt_future = executor.submit(lookup_url, e)
@@ -804,7 +828,6 @@ def handle_ip_lookup():
                             "threat_category": None,
                         }
 
-                    # Merge second API call actor details into enrichment
                     if actor_details:
                         enrichment.update({
                             "country_origin": actor_details.get("country_origin", enrichment.get("country_origin")),
@@ -825,6 +848,10 @@ def handle_ip_lookup():
 
                     vt_result["entry_type"] = "url"
                     vt_result["summary"] = build_summary(vt_result, "url")
+
+                    # ✅ Normalize query for URLs from API
+                    if vt_result.get("query"):
+                        vt_result["query"] = vt_result["query"].lower()
 
                     return vt_result
 
@@ -855,8 +882,13 @@ def handle_ip_lookup():
 
     # 2️⃣ always update search_log for each entry & client:
     for r in results:
-        entry = r.get("ip")
-        upsert_search_log(entry, client_name, timestamp_ist)
+        entry_type = r.get("entry_type", r.get("type", "IP"))
+        if entry_type.lower() == "url":
+            entry = r.get("query") or r.get("ip")  # use the domain/URL
+        else:
+            entry = r.get("ip")
+        upsert_search_log(entry, client_name, timestamp_ist, entry_type=entry_type)
+
 
     has_url = any(r.get("type") == "URL" for r in results)
 
