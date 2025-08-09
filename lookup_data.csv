@@ -1,0 +1,23 @@
+entry,entry_type,isp,asn,country,detection_count,threat_actor,country_origin,threat_category,campaign_name,target_sector,malware_families,associated_ip,created_at
+report-telegram.me,url,N/A,"",N/A,1,Yellow Phobos,"""Iran""","""SABOTAGE, ESPIONAGE""",,"""Dissident, Education, Government, Media, NGO, Technology""",RantomDoor,-,2025-08-08 18:38:33.82231+00
+220.226.202.147,ip,Reliance Communications Ltd.DAKC MUMBAI,18101,India,1,,null,null,,null,,"",2025-08-09 05:09:31.133548+00
+176.65.149.147,ip,Pfcloud UG,51396,Netherlands,5,,null,null,,null,,"",2025-08-09 05:12:41.286373+00
+196.251.87.187,ip,CHEAPY-HOST,401120,Netherlands,14,,null,null,,null,,"",2025-08-09 05:18:18.690848+00
+212.102.49.210,ip,Datacamp Limited,212238,Spain,2,,null,null,,null,,"",2025-08-09 05:20:08.066594+00
+217.142.25.239,ip,SPACEX-STARLINK,14593,Qatar,1,,null,null,,null,,"",2025-08-09 05:31:59.952034+00
+8.219.236.9,ip,"Alibaba US Technology Co., Ltd.",45102,Singapore,5,,null,null,,null,,"",2025-08-09 05:33:19.319765+00
+152.58.176.221,ip,Reliance Jio Infocomm Limited,55836,India,2,,null,null,,null,,"",2025-08-09 07:47:52.26924+00
+8.138.104.161,ip,"Hangzhou Alibaba Advertising Co.,Ltd.",37963,China,11,Heuristic and General,"""N/A""","""N/A""",,"""N/A""",Cobalt Strike,"",2025-08-09 07:49:14.627072+00
+212.102.35.36,ip,Datacamp Limited,212238,Netherlands,1,,null,null,,null,,"",2025-08-09 08:14:49.118703+00
+212.102.35.133,ip,Datacamp Limited,212238,Netherlands,1,,null,null,,null,,"",2025-08-09 08:14:49.128593+00
+217.138.205.114,ip,M247 Europe SRL,9009,Australia,1,,null,null,,null,,"",2025-08-09 08:14:49.136698+00
+79.142.79.64,ip,AltusHost B.V.,51430,Switzerland,1,,null,null,,null,,"",2025-08-09 08:14:49.141381+00
+143.244.52.59,ip,Datacamp Limited,212238,Romania,1,,null,null,,null,,"",2025-08-09 08:14:49.14919+00
+146.70.59.27,ip,M247 Europe SRL,9009,Portugal,1,,null,null,,null,,"",2025-08-09 08:14:49.157332+00
+185.236.201.215,ip,M247 Europe SRL,9009,Switzerland,1,,null,null,,null,,"",2025-08-09 08:14:49.164199+00
+66.56.81.82,ip,Datacamp Limited,212238,Canada,0,,null,null,,null,,"",2025-08-09 08:14:49.245279+00
+212.102.35.37,ip,Datacamp Limited,212238,Netherlands,0,,null,null,,null,,"",2025-08-09 08:14:49.268681+00
+89.149.52.86,ip,GTT Communications Inc.,3257,Canada,1,,null,null,,null,,"",2025-08-09 08:14:49.280762+00
+156.238.233.63,ip,COGNETCLOUD,401696,Seychelles,15,Heuristic and General,"""N/A""","""N/A""",Automated infrastructure tracking: Asset Reconnaissance Lighthouse (ARL),"""N/A""",,"",2025-08-09 08:43:57.972678+00
+176.65.148.144,ip,Pfcloud UG,51396,Netherlands,15,,null,null,,null,,"",2025-08-09 08:46:20.151176+00
+103.174.189.163,ip,Netcom Internet Service,141433,Bangladesh,5,,null,null,,null,,"",2025-08-09 08:57:33.2756+00
