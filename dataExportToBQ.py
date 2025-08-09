@@ -1,7 +1,21 @@
+import os
+import json
 import psycopg2
+from google.oauth2 import service_account
 from google.cloud import storage, bigquery
 
-# Configurations
+# ---------- Google Cloud Authentication ----------
+# If running outside of GCP (e.g., in Render), load creds from ENV
+if os.getenv("google_service_account_json"):
+    service_account_info = json.loads(os.getenv("google_service_account_json"))
+    credentials = service_account.Credentials.from_service_account_info(service_account_info)
+    GCP_PROJECT_ID = service_account_info["project_id"]
+else:
+    # If running in Cloud Functions, credentials are automatically provided
+    credentials = None
+    GCP_PROJECT_ID = "lookuptool-468508"
+
+# ---------- Configurations ----------
 PG_HOST = "dpg-d28d60h5pdvs738fdejg-a.singapore-postgres.render.com"
 PG_PORT = 5432
 PG_USER = "iplookupdb_user"
@@ -9,12 +23,13 @@ PG_PASSWORD = "KqXJnRYDvJjKVML1ImbcQAz8KyJhAMyZ"
 PG_DATABASE = "iplookupdb"
 
 GCS_BUCKET_NAME = "lookup_db"
-BQ_PROJECT = "lookuptool-468508"
+BQ_PROJECT = GCP_PROJECT_ID
 BQ_DATASET = "SOC_Data"
 
 LOOKUP_CSV = "/tmp/lookup_data.csv"       # must use /tmp in Cloud Functions
-SEARCH_LOG_CSV = "/tmp/search_log.csv"    # local writeable path in Functions
+SEARCH_LOG_CSV = "/tmp/search_log.csv"
 
+# ---------- Functions ----------
 def export_table_to_csv(table_name, csv_file):
     """Export data from Postgres table to local CSV file"""
     conn = psycopg2.connect(
@@ -34,7 +49,7 @@ def export_table_to_csv(table_name, csv_file):
 
 def upload_to_gcs(local_file, bucket_name, destination_blob_name):
     """Upload a file to Google Cloud Storage"""
-    storage_client = storage.Client()
+    storage_client = storage.Client(credentials=credentials, project=GCP_PROJECT_ID)
     bucket = storage_client.bucket(bucket_name)
     blob = bucket.blob(destination_blob_name)
     blob.upload_from_filename(local_file)
@@ -42,7 +57,7 @@ def upload_to_gcs(local_file, bucket_name, destination_blob_name):
 
 def load_csv_to_bigquery(table_name, gcs_uri):
     """Load CSV data from GCS into BigQuery table, overwriting existing data"""
-    client = bigquery.Client(project=BQ_PROJECT)
+    bq_client = bigquery.Client(credentials=credentials, project=BQ_PROJECT)
     table_id = f"{BQ_PROJECT}.{BQ_DATASET}.{table_name}"
 
     job_config = bigquery.LoadJobConfig(
@@ -52,7 +67,7 @@ def load_csv_to_bigquery(table_name, gcs_uri):
         autodetect=True
     )
 
-    load_job = client.load_table_from_uri(
+    load_job = bq_client.load_table_from_uri(
         gcs_uri,
         table_id,
         job_config=job_config
@@ -60,7 +75,7 @@ def load_csv_to_bigquery(table_name, gcs_uri):
     load_job.result()
     print(f"Loaded data into {table_id} from {gcs_uri}")
 
-# Cloud Function entry point for HTTP trigger
+# ---------- Cloud Function entry point ----------
 def main(request):
     export_table_to_csv("lookup_data", LOOKUP_CSV)
     export_table_to_csv("search_log", SEARCH_LOG_CSV)
