@@ -21,7 +21,6 @@ DATABASE_URL = (
     f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}"
     f"@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 )
-
 # echo=True will log all SQL — set to False in production
 engine       = create_engine(DATABASE_URL, echo=False, future=True)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
