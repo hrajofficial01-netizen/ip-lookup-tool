@@ -11,7 +11,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s"
 )
 
-def purge_expired_lookup_data(ttl_hours=48, dry_run=False):
+def purge_expired_lookup_data(ttl_hours=24, dry_run=False):
     """
     Delete records from lookup_data older than ttl_hours.
     Works with PostgreSQL when created_at is TIMESTAMPTZ (timezone-aware).
