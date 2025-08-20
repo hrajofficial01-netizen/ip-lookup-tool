@@ -20,14 +20,18 @@
 <div class="max-w-7xl mx-auto bg-[#2a2a2a] p-6 sm:p-10 rounded-2xl shadow-lg space-y-10 light-panel neon-border">
 
   <!-- Header -->
-  <div class="sticky top-0 z-50 shadow-lg">
-    <div class="bg-green-600 text-white px-6 py-4 rounded-t-2xl flex items-center justify-between">
-      <h1 class="text-xl sm:text-2xl font-semibold">IP & URL Lookup</h1> <!-- ✅ Updated title -->
-      <button id="toggleTheme" class="text-white text-xl hover:text-yellow-300 transition duration-300">
-        <i class="ph ph-moon-stars"></i>
-      </button>
-    </div>
+<div class="sticky top-0 z-50 shadow-lg">
+  <div class="bg-green-600 text-white px-6 py-4 rounded-t-2xl flex items-center justify-between mb-2">
+    <h1 class="text-xl sm:text-2xl font-semibold">IP & URL Lookup (Switched to the Backup Branch)</h1> 
+    <button id="toggleTheme" class="text-white text-xl hover:text-yellow-300 transition duration-300">
+      <i class="ph ph-moon-stars"></i>
+    </button>
   </div>
+  <div class="bg-red-600 text-white px-6 py-5 flex items-center justify-center rounded-b-2xl shadow-md hover:bg-red-500 transition duration-300 cursor-default mt-2">
+    <i class="ph ph-warning-circle mr-3 text-2xl"></i>
+    <h1 class="text-lg sm:text-xl font-semibold tracking-wide">Maintenance activity is in progress...</h1>
+  </div>
+</div>
 
   <!-- Input + Message -->
   <div id="mainInputArea" class="flex flex-col lg:flex-row gap-10 items-start justify-center min-h-[40vh]">
