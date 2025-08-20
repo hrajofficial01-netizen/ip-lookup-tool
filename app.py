@@ -23,6 +23,8 @@ from tie_service import get_ip_tie_data, get_domain_tie_data, extract_enrichment
 from concurrent.futures import ThreadPoolExecutor
 from db import SessionLocal
 from models import LookupData, SearchLog
+from models import SearchLogNew
+
 
 # Load environment variables
 load_dotenv()
@@ -111,36 +113,25 @@ def upsert_lookup_data(result):
         session.close()
 
 
-def upsert_search_log(entry, client_name, timestamp, entry_type=None):
-    """
-    For each search: increment lookup_count & update last_searched;
-    if first time, create row with first_searched=last_searched=timestamp.
-    Always stores normalized lowercase URLs/domains.
-    """
+def insert_search_event(entry, client_name, timestamp, entry_type=None):
     session = SessionLocal()
     try:
-        # 🔹 If we know the type and it's a URL, normalize
+        # Normalize URLs/domains
         if entry_type and entry_type.lower() == "url" and entry:
             entry = entry.lower()
-        # If no type provided, do a quick heuristic check for domain/URL
         elif not entry_type and entry and "." in entry and not entry.replace(".", "").isdigit():
             entry = entry.lower()
-        existing = session.get(SearchLog, (entry, client_name))
-        if existing:
-            existing.lookup_count += 1
-            existing.last_searched = timestamp
-        else:
-            new = SearchLog(
-                entry=entry,
-                client_name=client_name,
-                first_searched=timestamp,
-                last_searched=timestamp,
-                lookup_count=1
-            )
-            session.add(new)
+
+        new_event = SearchLogNew(
+            entry=entry,
+            client_name=client_name,
+            searched_at=timestamp
+        )
+        session.add(new_event)
         session.commit()
-    except IntegrityError:
+    except Exception as e:
         session.rollback()
+        raise
     finally:
         session.close()
 
@@ -700,31 +691,24 @@ def handle_ip_lookup():
 
         return summary
 
-
     def resolve_entry(e, client_name=client_name, timestamp_ist=None):
         session = SessionLocal()
         try:
             record = session.query(LookupData).filter_by(entry=e).first()
-            if record:
-                # Update or insert into SearchLog
-                search_log = session.query(SearchLog).filter_by(entry=e, client_name=client_name).first()
-                now = timestamp_ist or datetime.now()
+            now = timestamp_ist or datetime.now()
 
-                if search_log:
-                    search_log.last_searched = now
-                else:
-                    new_log = SearchLog(
-                        entry=e,
-                        client_name=client_name,
-                        first_searched=now,
-                        last_searched=now,
-                        lookup_count=1
-                    )
-                    session.add(new_log)
+            if record:
+                # Insert individual search event instead of aggregated update
+                new_event = SearchLogNew(
+                    entry=e,
+                    client_name=client_name,
+                    searched_at=now
+                )
+                session.add(new_event)
                 session.commit()
                 used_services.add("Database")
 
-                # Prepare return dict from DB record
+                # Prepare return dict from DB record (same as before)
                 data = {
                     "ip": record.associated_ip if record.entry_type == "url" else record.entry,
                     "query": record.entry,
@@ -752,7 +736,7 @@ def handle_ip_lookup():
                 }
                 data["summary"] = build_summary(data, record.entry_type)
 
-                # ✅ Normalize query for URLs from DB
+                # Normalize URLs to lowercase as before
                 if data.get("entry_type") == "url" and data.get("query"):
                     data["query"] = data["query"].lower()
 
@@ -887,7 +871,7 @@ def handle_ip_lookup():
             entry = r.get("query") or r.get("ip")  # use the domain/URL
         else:
             entry = r.get("ip")
-        upsert_search_log(entry, client_name, timestamp_ist, entry_type=entry_type)
+        insert_search_event(entry, client_name, timestamp_ist, entry_type=entry_type)
 
 
     has_url = any(r.get("type") == "URL" for r in results)

@@ -45,3 +45,23 @@ class SearchLog(Base):
     __table_args__ = (
         PrimaryKeyConstraint("entry", "client_name", name="pk_search_log"),
     )
+
+
+    __table_args__ = (
+        PrimaryKeyConstraint("entry", "client_name", name="pk_search_log"),
+    )
+
+
+class SearchLogNew(Base):
+    __tablename__ = "search_log_new"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    entry = Column(String, nullable=False, index=True)
+    entry_type = Column(String, nullable=True, index=True)  # newly added column
+    client_name = Column(String, nullable=False, index=True)
+    searched_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+    __table_args__ = (
+        # Composite indexes can be added here if needed
+        # Example: Index('ix_search_log_new_entry_client', 'entry', 'client_name')
+    )
