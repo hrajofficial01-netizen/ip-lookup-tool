@@ -135,7 +135,41 @@ def insert_search_event(entry, client_name, timestamp, entry_type=None):
     finally:
         session.close()
 
-
+def upsert_search_log(entry, client_name, timestamp, entry_type=None):
+    """
+    For each search: increment lookup_count & update last_searched;
+    if first time, create row with first_searched=last_searched=timestamp.
+    Always stores normalized lowercase URLs/domains.
+    """
+    session = SessionLocal()
+    try:
+        # 🔹 If we know the type and it's a URL, normalize
+        if entry_type and entry_type.lower() == "url" and entry:
+            entry = entry.lower()
+        # If no type provided, do a quick heuristic check for domain/URL
+        elif not entry_type and entry and "." in entry and not entry.replace(".", "").isdigit():
+            entry = entry.lower()
+        existing = session.get(SearchLog, (entry, client_name))
+        if existing:
+            existing.lookup_count += 1
+            existing.last_searched = timestamp
+        else:
+            new = SearchLog(
+                entry=entry,
+                client_name=client_name,
+                first_searched=timestamp,
+                last_searched=timestamp,
+                lookup_count=1
+            )
+            session.add(new)
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+    finally:
+        session.close()
+        
+        
+    
 def get_country_name(code):
     if not code:
         return "Unknown"
@@ -872,6 +906,7 @@ def handle_ip_lookup():
         else:
             entry = r.get("ip")
         insert_search_event(entry, client_name, timestamp_ist, entry_type=entry_type)
+        upsert_search_log(entry, client_name, timestamp_ist, entry_type=entry_type)
 
 
     has_url = any(r.get("type") == "URL" for r in results)
