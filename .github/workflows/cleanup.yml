@@ -3,18 +3,21 @@ name: Scheduled Cleanup
 on:
   schedule:
     - cron: '0 * * * *'   # Runs every hour
-  workflow_dispatch:      # Allows manual run from Actions tab
+  workflow_dispatch:       # Allows manual run from Actions tab
 
 jobs:
   run-cleanup:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
       - name: Install dependencies
         run: pip install -r requirements.txt
+
       - name: Run cleanup
         env:
           DB_USER: ${{ secrets.DB_USER }}
@@ -22,5 +25,17 @@ jobs:
           DB_HOST: ${{ secrets.DB_HOST }}
           DB_PORT: ${{ secrets.DB_PORT }}
           DB_NAME: ${{ secrets.DB_NAME }}
-          # Add more if your cleanup.py needs it
         run: python cleanup.py
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Refresh materialized view
+        env:
+          PGUSER: ${{ secrets.DB_USER }}
+          PGPASSWORD: ${{ secrets.DB_PASSWORD }}
+          PGHOST: ${{ secrets.DB_HOST }}
+          PGPORT: ${{ secrets.DB_PORT }}
+          PGDATABASE: ${{ secrets.DB_NAME }}
+        run: |
+          psql -c "REFRESH MATERIALIZED VIEW CONCURRENTLY search_log_new_daily_summary;"
