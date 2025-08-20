@@ -1,0 +1,24 @@
+name: Refresh Materialized View
+
+on:
+  schedule:
+    - cron: '0 * * * *'  # runs every hour; adjust as needed
+
+jobs:
+  refresh_mv:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Refresh materialized view in PostgreSQL
+      uses: actions/checkout@v3
+
+    - name: Refresh materialized view
+      env:
+        PGHOST: ${{ secrets.PGHOST }}
+        PGPORT: ${{ secrets.PGPORT }}
+        PGUSER: ${{ secrets.PGUSER }}
+        PGPASSWORD: ${{ secrets.PGPASSWORD }}
+        PGDATABASE: ${{ secrets.PGDATABASE }}
+      run: |
+        sudo apt-get update && sudo apt-get install -y postgresql-client
+        psql -c "REFRESH MATERIALIZED VIEW CONCURRENTLY search_log_new_daily_summary;"
