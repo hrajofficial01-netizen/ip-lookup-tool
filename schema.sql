@@ -75,4 +75,22 @@ ALTER TABLE ONLY public.search_log
 --
 -- PostgreSQL database dump complete
 --
+--
+-- Name: search_log_new; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.search_log_new (
+    id serial PRIMARY KEY,
+    entry character varying NOT NULL,
+    entry_type character varying,
+    client_name character varying NOT NULL,
+    searched_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+-- Optional: add indexes for performance
+
+CREATE INDEX idx_search_log_new_entry ON public.search_log_new (entry);
+CREATE INDEX idx_search_log_new_entry_type ON public.search_log_new (entry_type);
+CREATE INDEX idx_search_log_new_client_name ON public.search_log_new (client_name);
+CREATE INDEX idx_search_log_new_searched_at ON public.search_log_new (searched_at);
 
