@@ -734,14 +734,6 @@ def handle_ip_lookup():
             now = timestamp_ist or datetime.now()
 
             if record:
-                # Insert individual search event instead of aggregated update
-                new_event = SearchLogNew(
-                    entry=e,
-                    client_name=client_name,
-                    searched_at=now
-                )
-                session.add(new_event)
-                session.commit()
                 used_services.add("Database")
 
                 # Prepare return dict from DB record (same as before)
@@ -768,7 +760,7 @@ def handle_ip_lookup():
                     "used_service": "Database",
                     "used_key": "N/A",
                     "status_codes": {"Database": 200},
-                    "entry_type": record.entry_type,
+                    "entry_type": record.entry_type if record else ("url" if is_valid_url(e) else "ip"),
                 }
                 data["summary"] = build_summary(data, record.entry_type)
 
