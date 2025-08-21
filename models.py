@@ -36,6 +36,7 @@ class SearchLog(Base):
     __tablename__ = "search_log"
 
     entry         = Column(String,   nullable=False)
+    entry_type = Column(String, nullable=True, index=True)  # newly added column
     client_name   = Column(String,   nullable=False)
     first_searched= Column(DateTime, server_default=func.now(), nullable=False)
     last_searched = Column(DateTime, server_default=func.now(),
@@ -45,12 +46,6 @@ class SearchLog(Base):
     __table_args__ = (
         PrimaryKeyConstraint("entry", "client_name", name="pk_search_log"),
     )
-
-
-    __table_args__ = (
-        PrimaryKeyConstraint("entry", "client_name", name="pk_search_log"),
-    )
-
 
 class SearchLogNew(Base):
     __tablename__ = "search_log_new"

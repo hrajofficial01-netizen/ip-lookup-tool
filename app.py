@@ -124,6 +124,7 @@ def insert_search_event(entry, client_name, timestamp, entry_type=None):
 
         new_event = SearchLogNew(
             entry=entry,
+            entry_type=entry_type,
             client_name=client_name,
             searched_at=timestamp
         )
@@ -156,6 +157,7 @@ def upsert_search_log(entry, client_name, timestamp, entry_type=None):
         else:
             new = SearchLog(
                 entry=entry,
+                entry_type=entry_type,
                 client_name=client_name,
                 first_searched=timestamp,
                 last_searched=timestamp,
