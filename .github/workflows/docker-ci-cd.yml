@@ -49,9 +49,6 @@ jobs:
           DOCKER_REPO: ${{ secrets.DOCKER_REPO }}
           DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
         run: python delete_old_images.py
-
-        
-
         
       - name: Trigger deployment webhook
         if: success()
