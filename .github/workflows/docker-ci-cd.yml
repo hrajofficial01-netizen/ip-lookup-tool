@@ -50,6 +50,7 @@ jobs:
           DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
         run: python delete_old_images.py
 
+        
       - name: Trigger deployment webhook
         if: success()
         run: curl -X POST https://yourserver.com/deploy-webhook
