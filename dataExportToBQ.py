@@ -3,6 +3,7 @@ import json
 import psycopg2
 from google.oauth2 import service_account
 from google.cloud import storage, bigquery, secretmanager
+import tempfile
 
 # ---------- Google Cloud Authentication ----------
 if os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON"):  # local / non-GCP run
@@ -33,10 +34,10 @@ GCS_BUCKET_NAME = os.getenv("GCS_BUCKET_NAME", "lookup_db")
 BQ_PROJECT = GCP_PROJECT_ID
 BQ_DATASET = os.getenv("BQ_DATASET", "SOC_Data")
 
-# Temp file paths for Cloud Functions (/tmp is writable)
-LOOKUP_CSV = "/tmp/lookup_data.csv"
-SEARCH_LOG_CSV = "/tmp/search_log.csv"
-SEARCH_LOG_NEW_CSV = "/tmp/search_log_new.csv"  # New CSV for search_log_new
+# Temp file paths for Cloud Functions (cross-platform)
+LOOKUP_CSV = os.path.join(tempfile.gettempdir(), "lookup_data.csv")
+SEARCH_LOG_CSV = os.path.join(tempfile.gettempdir(), "search_log.csv")
+SEARCH_LOG_NEW_CSV = os.path.join(tempfile.gettempdir(), "search_log_new.csv")  # New CSV for search_log_new
 
 # ---------- Helper function to check row count ----------
 def check_row_count(table_name: str) -> int:
@@ -47,12 +48,15 @@ def check_row_count(table_name: str) -> int:
         password=DB_PASSWORD,
         dbname=DB_DATABASE
     )
-    cur = conn.cursor()
-    cur.execute(f"SELECT COUNT(*) FROM {table_name}")
-    count = cur.fetchone()[0]
-    cur.close()
-    conn.close()
-    return count
+    try:
+        cur = conn.cursor()
+        cur.execute(f"SELECT COUNT(*) FROM {table_name}")
+        count = cur.fetchone()[0]
+        print(f"Table {table_name} has {count} rows")
+        cur.close()
+        return count
+    finally:
+        conn.close()
 
 # ---------- Functions ----------
 def export_table_to_csv(table_name: str, csv_file: str):
@@ -63,15 +67,16 @@ def export_table_to_csv(table_name: str, csv_file: str):
         password=DB_PASSWORD,
         dbname=DB_DATABASE
     )
-    cur = conn.cursor()
-    with open(csv_file, 'w', encoding='utf-8') as f:
-        # Modified to export data correctly from TimescaleDB hypertable
-        sql = f"COPY (SELECT * FROM {table_name}) TO STDOUT WITH CSV HEADER"
-        cur.copy_expert(sql, f)
-    cur.close()
-    conn.close()
-    size = os.path.getsize(csv_file)
-    print(f"Exported {table_name} to {csv_file} ({size} bytes)")
+    try:
+        cur = conn.cursor()
+        with open(csv_file, 'w', encoding='utf-8') as f:
+            sql = f"COPY (SELECT * FROM {table_name}) TO STDOUT WITH CSV HEADER"
+            cur.copy_expert(sql, f)
+        size = os.path.getsize(csv_file)
+        print(f"Exported {table_name} to {csv_file} ({size} bytes)")
+        cur.close()
+    finally:
+        conn.close()
 
 def upload_to_gcs(local_file: str, bucket_name: str, destination_blob_name: str):
     storage_client = storage.Client(credentials=credentials, project=GCP_PROJECT_ID)
@@ -94,31 +99,42 @@ def load_csv_to_bigquery(table_name: str, gcs_uri: str):
     print(f"Loaded data into {table_id} from {gcs_uri}")
 
 # ---------- Cloud Function Entry Point ----------
-def main(request):
-    """HTTP-triggered Cloud Function"""
-    if request.method == "GET":
+def main(request=None):
+    """HTTP-triggered Cloud Function or local callable function"""
+    if request and request.method == "GET":
         # Health check endpoint
+        print("Health check invoked")
         return "OK", 200
 
     try:
-        # Check data presence before export
         for tbl in ("lookup_data", "search_log", "search_log_new"):
-            count = check_row_count(tbl)
-            print(f"Table {tbl} has {count} rows")
+            check_row_count(tbl)
 
         export_table_to_csv("lookup_data", LOOKUP_CSV)
         export_table_to_csv("search_log", SEARCH_LOG_CSV)
-        export_table_to_csv("search_log_new", SEARCH_LOG_NEW_CSV)  # Export the new table
+        export_table_to_csv("search_log_new", SEARCH_LOG_NEW_CSV)
 
         upload_to_gcs(LOOKUP_CSV, GCS_BUCKET_NAME, "lookup_data.csv")
         upload_to_gcs(SEARCH_LOG_CSV, GCS_BUCKET_NAME, "search_log.csv")
-        upload_to_gcs(SEARCH_LOG_NEW_CSV, GCS_BUCKET_NAME, "search_log_new.csv")  # Upload new table CSV
+        upload_to_gcs(SEARCH_LOG_NEW_CSV, GCS_BUCKET_NAME, "search_log_new.csv")
 
         load_csv_to_bigquery("lookup_data", f"gs://{GCS_BUCKET_NAME}/lookup_data.csv")
         load_csv_to_bigquery("search_log", f"gs://{GCS_BUCKET_NAME}/search_log.csv")
-        load_csv_to_bigquery("search_log_new", f"gs://{GCS_BUCKET_NAME}/search_log_new.csv")  # Load new table data
+        load_csv_to_bigquery("search_log_new", f"gs://{GCS_BUCKET_NAME}/search_log_new.csv")
 
+        print("Sync completed successfully")
         return "Sync completed successfully", 200
+
     except Exception as e:
         print(f"[ERROR] Sync failed: {e}")
         return f"Internal Server Error: {e}", 500
+
+# ---------- Run Locally with Functions Framework ----------
+if __name__ == "__main__":
+    print("Starting local ETL test run...")
+
+    # Run the function directly without HTTP request object
+    response = main()
+    
+    print(f"Local run completed with response: {response}")
+

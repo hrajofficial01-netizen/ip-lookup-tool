@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   cloud_sql_proxy:
     image: gcr.io/cloudsql-docker/gce-proxy:latest

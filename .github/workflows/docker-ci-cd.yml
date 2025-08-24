@@ -25,12 +25,13 @@ jobs:
           echo "${{ secrets.GCP_SA_KEY }}" > ./secrets/credentials.json
           chmod 600 ./secrets/credentials.json
 
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v6
+      - name: Cache pip dependencies
+        uses: actions/cache@v3
         with:
-          context: .
-          push: true
-          tags: ${{ secrets.DOCKER_USERNAME }}/ip-lookup-tool:latest
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -38,14 +39,25 @@ jobs:
           python-version: '3.x'
 
       - name: Install dependencies
-        run: pip install requests
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ secrets.DOCKER_USERNAME }}/ip-lookup-tool:latest
+          file: ./Dockerfile
+          platforms: linux/amd64
 
       - name: Run Docker Hub image cleaner
         env:
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
           DOCKER_REPO: ${{ secrets.DOCKER_REPO }}
           DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
-        run: python delete_old_images.py
+        run: python delete_old_images.py || echo "Image cleaner failed, continuing..."
 
       - name: Clean up secret file
         if: always()
