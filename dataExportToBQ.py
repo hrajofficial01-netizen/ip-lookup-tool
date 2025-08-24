@@ -22,11 +22,11 @@ def get_secret(secret_id: str) -> str:
     return response.payload.data.decode("UTF-8")
 
 # ---------- Database Config ----------
-DB_HOST = os.getenv("PG_HOST") or get_secret("PG_HOST")
-DB_PORT = int(os.getenv("PG_PORT", "5432"))
-DB_USER = os.getenv("PG_USER") or get_secret("PG_USER")
-DB_PASSWORD = os.getenv("PG_PASSWORD") or get_secret("PG_PASSWORD")
-DB_DATABASE = os.getenv("PG_DATABASE") or get_secret("PG_DATABASE")
+DB_HOST = os.getenv("DB_HOST") or get_secret("PG_HOST")
+DB_PORT = int(os.getenv("DB_PORT", "5432"))
+DB_USER = os.getenv("DB_USER") or get_secret("PG_USER")
+DB_PASSWORD = os.getenv("DB_PASSWORD") or get_secret("PG_PASSWORD")
+DB_DATABASE = os.getenv("DB_NAME") or get_secret("PG_DATABASE")
 
 # ---------- GCS & BQ Config ----------
 GCS_BUCKET_NAME = os.getenv("GCS_BUCKET_NAME", "lookup_db")
