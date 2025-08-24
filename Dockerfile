@@ -28,5 +28,5 @@ EXPOSE 5000
 # Ensure Python output is unbuffered (logs show immediately)
 ENV PYTHONUNBUFFERED=1
 
-# Run your application (adjust if your entrypoint changes)
-CMD ["python", "app.py"]
+# Run Gunicorn serving the app defined in app.py (app:app)
+CMD ["gunicorn", "--workers", "4", "--bind", "0.0.0.0:5000", "app:app"]
