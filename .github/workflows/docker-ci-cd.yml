@@ -3,7 +3,7 @@ name: Docker CI/CD Pipeline
 on:
   push:
     branches:
-      - main
+      - main_gcp_integration
 
 jobs:
   build-push:
