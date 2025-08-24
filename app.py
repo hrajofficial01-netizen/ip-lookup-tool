@@ -13,7 +13,7 @@ import pytz
 from flask import Flask, request, jsonify, send_file, render_template
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from tie_service import get_ip_tie_data, get_domain_tie_data, extract_enrichment_fields, get_actor_info_from_entry
-
+import atexit
 from dotenv import load_dotenv
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, Border, Side
@@ -30,6 +30,17 @@ from models import SearchLogNew
 load_dotenv()
 
 app = Flask(__name__)
+
+import threading
+
+is_shutting_down = False
+
+def safe_print(*args, **kwargs):
+    if not is_shutting_down:
+        print(*args, **kwargs)
+
+
+
 
 # API keys from environment
 VT_KEYS = [key.strip() for key in os.getenv("VT_API_KEYS", "").split(",") if key.strip()]
@@ -49,6 +60,10 @@ used_services = set()
 unused_services = set()
 country_cache = {}
 MAX_WORKERS = 100
+# Define a global executor reused across requests
+
+executor_main = ThreadPoolExecutor(max_workers=MAX_WORKERS)
+atexit.register(lambda: executor_main.shutdown(wait=True))
 
 def upsert_lookup_data(result):
     """
@@ -252,7 +267,7 @@ def fetch_virustotal_url_data(url):
         vt_keys_success.add(key)
 
     except Exception as e:
-        print(f"[ERROR] VT URL scan failed: {e}")
+        safe_print(f"[ERROR] VT URL scan failed: {e}")
         # you may also set result["status_codes"]["VT_URL_error"] = str(e)
 
     return result
@@ -873,17 +888,17 @@ def handle_ip_lookup():
         finally:
             session.close()
 
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        results = list(executor.map(resolve_entry, valid_entries))
+    
+    results = list(executor_main.map(resolve_entry, valid_entries))
 
     # Filter out None results to avoid errors later
     results = [r for r in results if r is not None]
 
-    print("All results from lookup:", results)
-    print("\n---------------------------------\n")
+    safe_print("All results from lookup:", results)
+    safe_print("\n---------------------------------\n")
     for r in results:
         if "summary" not in r or not r["summary"]:
-            print(f"Warning: Entry without summary: {r}")
+            safe_print(f"Warning: Entry without summary: {r}")
             
     timestamp_ist = datetime.now(pytz.timezone("Asia/Kolkata"))
 
@@ -981,39 +996,39 @@ def handle_ip_lookup():
     vt_bad = exhausted_vt_keys.copy()
 
     # ← your original-style summary prints with all details:
-    print("\n📊 API USAGE SUMMARY")
-    print(f"⏰ Search Timestamp (IST): {timestamp_ist}")
-    print(f"✅ Data found for {len(valid_entries)} entr{'y' if len(valid_entries) == 1 else 'ies'} in {elapsed} seconds.")
-    print(f"🔧 Services Used     : {', '.join(sorted(s for s in used_services if s is not None)) or 'None'}")
-    print(f"🔧 Services Unused     : {', '.join(sorted(s for s in unused_services if s is not None)) or 'None'}")
-    print(f"✅ Successfully Used VT Keys: {len(vt_ok)}")
+    safe_print("\n📊 API USAGE SUMMARY")
+    safe_print(f"⏰ Search Timestamp (IST): {timestamp_ist}")
+    safe_print(f"✅ Data found for {len(valid_entries)} entr{'y' if len(valid_entries) == 1 else 'ies'} in {elapsed} seconds.")
+    safe_print(f"🔧 Services Used     : {', '.join(sorted(s for s in used_services if s is not None)) or 'None'}")
+    safe_print(f"🔧 Services Unused     : {', '.join(sorted(s for s in unused_services if s is not None)) or 'None'}")
+    safe_print(f"✅ Successfully Used VT Keys: {len(vt_ok)}")
     for k in vt_ok:
-        print(f"    {mask_key(k)}")
-    print(f"❌ Exhausted VT Keys: {len(vt_bad)}")
+        safe_print(f"    {mask_key(k)}")
+    safe_print(f"❌ Exhausted VT Keys: {len(vt_bad)}")
     for k in vt_bad:
-        print(f"    {mask_key(k)}")
+        safe_print(f"    {mask_key(k)}")
     if exhausted_other_keys:
-        print("❌ Exhausted Other Services:", ", ".join(exhausted_other_keys))
+        safe_print("❌ Exhausted Other Services:", ", ".join(exhausted_other_keys))
     if len(vt_bad) > 10:
-        print("⚠️ Warning: More than 10 VT keys are exhausted. Consider rotating or refreshing your keys.")
+        safe_print("⚠️ Warning: More than 10 VT keys are exhausted. Consider rotating or refreshing your keys.")
     vt_unused = set(VT_KEYS) - (vt_keys_success | exhausted_vt_keys)
-    print(f"🟡 Unused VT Keys: {len(vt_unused)}")
+    safe_print(f"🟡 Unused VT Keys: {len(vt_unused)}")
     for k in vt_unused:
-        print(f"    {mask_key(k)}")
-    print("Used API Keys:")
+        safe_print(f"    {mask_key(k)}")
+    safe_print("Used API Keys:")
     if vt_ok:
-        print("  VT Keys:", ", ".join(mask_key(k) for k in vt_ok))
+        safe_print("  VT Keys:", ", ".join(mask_key(k) for k in vt_ok))
     if "AbuseIPDB" in used_services:
-        print("  AbuseIPDB Key:", mask_key(ABUSEIPDB_KEY))
+        safe_print("  AbuseIPDB Key:", mask_key(ABUSEIPDB_KEY))
     if "DBIP" in used_services:
-        print("  DBIP Key:", mask_key(DBIP_KEY))
+        safe_print("  DBIP Key:", mask_key(DBIP_KEY))
     if "IPINFO" in used_services:
-        print("  IPInfo Key:", mask_key(IPINFO_KEY))
+        safe_print("  IPInfo Key:", mask_key(IPINFO_KEY))
     if "APIVoid" in used_services:
-        print("  APIVoid Key:", mask_key(APIVOID_KEY))
+        safe_print("  APIVoid Key:", mask_key(APIVOID_KEY))
 
     # ← per-entry detailed printout
-    print("\n📋 Per Entry Summary:\n")
+    safe_print("\n📋 Per Entry Summary:\n")
     for r in results:
         ip_entry = r.get("ip") or r.get("query")
         if not ip_entry:
@@ -1031,20 +1046,20 @@ def handle_ip_lookup():
         status_parts = [f"{svc}={code}" for svc, code in r.get("status_codes", {}).items()]
 
         # Print summary line with spacing
-        print()
-        print(
+        safe_print()
+        safe_print(
             f"[{ip_entry}]  " +
             ";   ".join(main_parts) +
             "\n|  StatusCodes: " + ", ".join(status_parts)
         )
-        print()
+        safe_print()
 
-    print("----------------------------\n")
+    safe_print("----------------------------\n")
 
     types = {"IP" if is_valid_ip(e) else "URL" for e in entries if is_valid_ip(e) or is_valid_url(e)}
     column_label = "IP" if types == {"IP"} else "URL" if types == {"URL"} else "IP/URL"
-    print("Returning raw_table:", raw_table)
-    print("\n---------------------------------\n")
+    safe_print("Returning raw_table:", raw_table)
+    safe_print("\n---------------------------------\n")
 
     return jsonify({
         "summary": summary_text,
@@ -1163,4 +1178,4 @@ def index():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)  # Adjust port and debug as needed
+    app.run(host="0.0.0.0", port=5000, debug=False)  # Adjust port and debug as needed

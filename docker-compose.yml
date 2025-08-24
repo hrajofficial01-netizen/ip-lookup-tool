@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  cloud_sql_proxy:
+    image: gcr.io/cloudsql-docker/gce-proxy:latest
+    command:
+      - /cloud_sql_proxy
+      - -instances=lookuptool-468508:asia-southeast1:iplookup=tcp:0.0.0.0:5432
+      - -credential_file=/secrets/credentials.json
+    ports:
+      - "5433:5432"  # Proxy listens on container port 5432, mapped to host 5433
+    volumes:
+      - ./secrets/credentials.json:/secrets/credentials.json:ro
+    restart: unless-stopped
+
+  app:
+    build: .
+    image: harsh6276/ip-lookup-tool:latest
+    depends_on:
+      - cloud_sql_proxy
+    environment:
+      - VT_API_KEYS
+      - ABUSEIPDB_API_KEY
+      - IPINFO_API_KEY
+      - APIVOID_API_KEY
+      - IPGEOLOCATION_API_KEY
+      - IPDATA_API_KEY
+      - DB_NAME
+      - DB_USER
+      - DB_PASSWORD
+      - CLIENT_ID
+      
+      - CLIENT_SECRET
+      - TOKEN_ENDPOINT
+      - PYTHON_VERSION
+      - GOOGLE_APPLICATION_CREDENTIALS
+      - DOCKER_USERNAME
+      - DOCKER_REPO
+      - DOCKER_PASSWORD
+      - GCP_SA_KEY
+      - DB_HOST=cloud_sql_proxy
+      - DB_PORT=5432
+    ports:
+      - "5000:5000"
+    restart: unless-stopped

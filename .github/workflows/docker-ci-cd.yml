@@ -6,7 +6,7 @@ on:
       - main
 
 jobs:
-  build-and-push:
+  build-push:
     runs-on: ubuntu-latest
 
     steps:
@@ -19,11 +19,18 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Build Docker image
-        run: docker build -t ${{ secrets.DOCKER_USERNAME }}/ip-lookup-tool:latest .
+      - name: Write GCP Service Account Key
+        run: |
+          mkdir -p ./secrets
+          echo "${{ secrets.GCP_SA_KEY }}" > ./secrets/credentials.json
+          chmod 600 ./secrets/credentials.json
 
-      - name: Push Docker image
-        run: docker push ${{ secrets.DOCKER_USERNAME }}/ip-lookup-tool:latest
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ secrets.DOCKER_USERNAME }}/ip-lookup-tool:latest
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -33,23 +40,17 @@ jobs:
       - name: Install dependencies
         run: pip install requests
 
-      - name: Debug environment variables
-        run: |
-          echo "DOCKER_USERNAME=$DOCKER_USERNAME"
-          echo "DOCKER_REPO=$DOCKER_REPO"
-          echo "DOCKER_PASSWORD is set: ${DOCKER_PASSWORD:+yes}"
-        env:
-          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-          DOCKER_REPO: ${{ secrets.DOCKER_REPO }}
-          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
-
       - name: Run Docker Hub image cleaner
         env:
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
           DOCKER_REPO: ${{ secrets.DOCKER_REPO }}
           DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
         run: python delete_old_images.py
-        
+
+      - name: Clean up secret file
+        if: always()
+        run: rm -rf ./secrets
+
       - name: Trigger deployment webhook
         if: success()
         run: curl -X POST https://yourserver.com/deploy-webhook
