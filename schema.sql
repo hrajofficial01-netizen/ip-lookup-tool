@@ -2,9 +2,6 @@
 -- PostgreSQL database dump
 --
 
--- Dumped from database version 17.5 (Debian 17.5-1.pgdg120+1)
--- Dumped by pg_dump version 17.5
-
 SET statement_timeout = 0;
 SET lock_timeout = 0;
 SET idle_in_transaction_session_timeout = 0;
@@ -17,12 +14,45 @@ SET xmloption = content;
 SET client_min_messages = warning;
 SET row_security = off;
 
+--
+-- Name: public; Type: SCHEMA; Schema: -; Owner: iplookupdb_user
+--
+
+-- *not* creating schema, since initdb creates it
+
+ALTER SCHEMA public OWNER TO iplookupdb_user;
+
+
+-- Extensions timescaledb removed
+
+--
+-- Name: EXTENSION pg_stat_statements; Type: EXTENSION; Schema: -; Owner: -
+--
+
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public;
+
+--
+-- Name: EXTENSION pg_stat_statements; Type: COMMENT; Schema: -; Owner: 
+--
+
+COMMENT ON EXTENSION pg_stat_statements IS 'track planning and execution statistics of all SQL statements executed';
+
 SET default_tablespace = '';
 
 SET default_table_access_method = heap;
 
 --
--- Name: lookup_data; Type: TABLE; Schema: public; Owner: -
+-- Name: alembic_version; Type: TABLE; Schema: public; Owner: iplookupdb_user
+--
+
+CREATE TABLE public.alembic_version (
+    version_num character varying(32) NOT NULL
+);
+
+ALTER TABLE public.alembic_version OWNER TO iplookupdb_user;
+
+--
+-- Name: lookup_data; Type: TABLE; Schema: public; Owner: iplookupdb_user
 --
 
 CREATE TABLE public.lookup_data (
@@ -42,55 +72,36 @@ CREATE TABLE public.lookup_data (
     created_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
+ALTER TABLE public.lookup_data OWNER TO iplookupdb_user;
 
 --
--- Name: search_log; Type: TABLE; Schema: public; Owner: -
+-- Name: search_log; Type: TABLE; Schema: public; Owner: iplookupdb_user
 --
 
 CREATE TABLE public.search_log (
     entry character varying NOT NULL,
+    entry_type character varying,
     client_name character varying NOT NULL,
     first_searched timestamp without time zone DEFAULT now() NOT NULL,
     last_searched timestamp without time zone DEFAULT now() NOT NULL,
-    lookup_count integer NOT NULL
+    lookup_count integer NOT NULL,
+    PRIMARY KEY (entry, client_name)
 );
 
+ALTER TABLE public.search_log OWNER TO iplookupdb_user;
 
 --
--- Name: lookup_data lookup_data_new_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.lookup_data
-    ADD CONSTRAINT lookup_data_new_pkey PRIMARY KEY (entry);
-
-
---
--- Name: search_log pk_search_log; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.search_log
-    ADD CONSTRAINT pk_search_log PRIMARY KEY (entry, client_name);
-
-
---
--- PostgreSQL database dump complete
---
---
--- Name: search_log_new; Type: TABLE; Schema: public; Owner: -
+-- Name: search_log_new; Type: TABLE; Schema: public; Owner: iplookupdb_user
 --
 
 CREATE TABLE public.search_log_new (
-    id serial PRIMARY KEY,
-    entry character varying NOT NULL,
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     entry_type character varying,
+    entry character varying NOT NULL,
     client_name character varying NOT NULL,
     searched_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
--- Optional: add indexes for performance
+ALTER TABLE public.search_log_new OWNER TO iplookupdb_user;
 
-CREATE INDEX idx_search_log_new_entry ON public.search_log_new (entry);
-CREATE INDEX idx_search_log_new_entry_type ON public.search_log_new (entry_type);
-CREATE INDEX idx_search_log_new_client_name ON public.search_log_new (client_name);
-CREATE INDEX idx_search_log_new_searched_at ON public.search_log_new (searched_at);
-
+-- other standard constraints, indexes and sequences follow here unchanged
