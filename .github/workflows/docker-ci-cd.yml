@@ -4,7 +4,8 @@ on:
   push:
     branches:
       - main_gcp_integration
-
+  workflow_dispatch:      # Allows manual run from Actions tab
+  
 jobs:
   build-push:
     runs-on: ubuntu-latest
