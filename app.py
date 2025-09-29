@@ -721,7 +721,7 @@ def handle_ip_lookup():
         else:  # IP
             summary = (
                 f"The IP: {data.get('ip')} belongs to ISP: {data.get('isp') or 'N/A'}, "
-                f"from Country: {data.get('country') or 'N/A'}, with Detection count: {data.get('detections', 0)}/93."
+                f"from Country: {data.get('country') or 'N/A'}, with Detection count: {data.get('detections', 0)}/95."
                 + ioc_summary
             )
 
