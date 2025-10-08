@@ -23,14 +23,18 @@ from openpyxl.utils import get_column_letter
 def keep_alive():
     while True:
         try:
-            # Replace with your Render app's public URL
-            requests.get("https://ipandurl-lookup-tool.onrender.com/")
+            response = requests.get("https://ipandurl-lookup-tool.onrender.com/")
+            if response.status_code == 200:
+                print("Keep alive ping successful")
+            else:
+                print(f"Keep alive ping returned status code: {response.status_code}")
         except Exception as e:
             print("Keep alive ping failed:", e)
-        time.sleep(300)  # Sleep for 10 minutes
+        time.sleep(120)  # Sleep for 2 minutes
 
 # Start the keep_alive function in a daemon thread so it won't block app shutdown
 threading.Thread(target=keep_alive, daemon=True).start()
+
 load_dotenv()
 
 app = Flask(__name__)
