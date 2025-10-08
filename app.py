@@ -25,6 +25,17 @@ from db import SessionLocal
 from models import LookupData, SearchLog
 from models import SearchLogNew
 
+def keep_alive():
+    while True:
+        try:
+            # Replace with your Render app's public URL
+            requests.get("https://https://ipandurl-lookup-tool.onrender.com/")
+        except Exception as e:
+            print("Keep alive ping failed:", e)
+        time.sleep(300)  # Sleep for 10 minutes
+
+# Start the keep_alive function in a daemon thread so it won't block app shutdown
+threading.Thread(target=keep_alive, daemon=True).start()
 
 # Load environment variables
 load_dotenv()
