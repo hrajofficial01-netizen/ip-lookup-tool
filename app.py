@@ -19,6 +19,18 @@ from openpyxl import Workbook
 from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 
+
+def keep_alive():
+    while True:
+        try:
+            # Replace with your Render app's public URL
+            requests.get("https://https://ipandurl-lookup-tool.onrender.com/")
+        except Exception as e:
+            print("Keep alive ping failed:", e)
+        time.sleep(300)  # Sleep for 10 minutes
+
+# Start the keep_alive function in a daemon thread so it won't block app shutdown
+threading.Thread(target=keep_alive, daemon=True).start()
 load_dotenv()
 
 app = Flask(__name__)
