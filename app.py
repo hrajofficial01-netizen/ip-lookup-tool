@@ -24,7 +24,7 @@ def keep_alive():
     while True:
         try:
             # Replace with your Render app's public URL
-            requests.get("https://https://ipandurl-lookup-tool.onrender.com/")
+            requests.get("https://ipandurl-lookup-tool.onrender.com/")
         except Exception as e:
             print("Keep alive ping failed:", e)
         time.sleep(300)  # Sleep for 10 minutes
