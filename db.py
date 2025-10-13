@@ -20,9 +20,10 @@ if not all([DB_USER, DB_PASSWORD, DB_NAME]):
 
 password_escaped = urllib.parse.quote_plus(DB_PASSWORD)
 
-DATABASE_URL = (
-    f"postgresql+psycopg2://{DB_USER}:{password_escaped}@{DB_HOST}:{DB_PORT}/{DB_NAME}?sslmode=disable"
-)
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError("Please set DATABASE_URL as environment variable")
+
 # echo=True will log all SQL — set to False in production
 engine       = create_engine(DATABASE_URL, echo=False, future=True)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
