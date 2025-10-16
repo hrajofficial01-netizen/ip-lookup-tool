@@ -1,10 +1,3 @@
-
-
-// Stricter IPv4 and basic IPv6 format validation
-// If you're using modules (npm/yarn)
-
-// Or, if loaded via CDN, ipaddr is a global object
-
 function isValidIP(ip) {
   try {
     return ipaddr.isValid(ip);
@@ -13,8 +6,6 @@ function isValidIP(ip) {
   }
 }
 
-
-// Check if IP is private/reserved (basic IPv4 only)
 function isPrivateIP(ip) {
   const parts = ip.split(".").map(Number);
   if (parts.length !== 4 || parts.some(isNaN)) return false;
@@ -29,27 +20,18 @@ function isPrivateIP(ip) {
   );
 }
 
-// Improved URL validation to avoid malformed IPs or short strings
 function isValidURL(str) {
   try {
     const url = new URL(str.startsWith("http") ? str : `http://${str}`);
     const hostname = url.hostname;
-
-    // Reject malformed or incomplete IP-like hostnames (e.g. "12.23.4")
     if (/^\d{1,3}(\.\d{1,3}){1,2}$/.test(hostname)) return false;
-
-    // Require at least one dot and valid TLD-like pattern
     if (!hostname.includes(".") || !/[a-zA-Z]{2,}$/.test(hostname.split(".").pop())) return false;
-
     return true;
   } catch {
     return false;
   }
 }
 
-
-
-// Main fetch function
 async function fetchIPData() {
   const inputField = document.getElementById("ipInput");
   const lookupButton = document.getElementById("lookupButton");
@@ -61,15 +43,6 @@ async function fetchIPData() {
   const messageDiv = document.getElementById("message");
   const messageBlock = document.getElementById("messageBlock");
   const downloadBtn = document.getElementById("downloadExcelBtn");
-  //const clientName ="test"
-  //const clientName = document.getElementById("clientName").value.trim();
-
-  // 1️⃣ Must be here — before any splitting or fetch:
-  //if (!clientName) {
-   // errorMsg.textContent = "⚠️ Client name is required to perform the lookup.";
-   // clientName ="test"
-   // return;
-  //}
 
   errorMsg.classList.add("hidden");
   summarySection.classList.add("hidden");
@@ -79,7 +52,6 @@ async function fetchIPData() {
   downloadBtn.style.display = "none";
   messageDiv.innerHTML = "";
   messageBlock.classList.remove("show", "hidden");
-
 
   let rawEntries = inputField.value
     .split(/[\s,\n]+/)
@@ -98,7 +70,6 @@ async function fetchIPData() {
       continue;
     }
     seen.add(entry);
-
     if (isValidIP(entry)) {
       if (!isPrivateIP(entry)) validIPs.push(entry);
     } else if (isValidURL(entry)) {
@@ -111,25 +82,21 @@ async function fetchIPData() {
   let validEntries = [...validIPs, ...validURLs];
   const messages = [];
 
-
   if (validEntries.length === 0) {
     errorMsg.textContent = "⚠️ No valid public IPs or URLs found.";
     errorMsg.classList.remove("hidden");
     return;
   }
   if (skippedInvalid.length > 0) {
-    messages.push(`⚠️ <span class="text-red-400 font-bold glow-red">${skippedInvalid.length} Invalid entr${skippedInvalid.length!== 1 ? 'ies' : 'y'} skipped</span> : ${skippedInvalid.join(", ")}`);
+    messages.push(`⚠️ <span class="text-red-400 font-bold glow-red">${skippedInvalid.length} Invalid entr${skippedInvalid.length !== 1 ? 'ies' : 'y'} skipped</span> : ${skippedInvalid.join(", ")}`);
   }
-
   if (duplicates.length > 0) {
-    messages.push(`⚠️ <span class="text-red-400 font-bold glow-red">${duplicates.length} Duplicate${duplicates.length!== 1 ? 's' : ''} removed</span>: ${duplicates.join(", ")}`);
+    messages.push(`⚠️ <span class="text-red-400 font-bold glow-red">${duplicates.length} Duplicate${duplicates.length !== 1 ? 's' : ''} removed</span>: ${duplicates.join(", ")}`);
   }
-
   const privateIPs = rawEntries.filter(ip => isValidIP(ip) && isPrivateIP(ip));
   if (privateIPs.length > 0) {
-    messages.push(`⚠️ <span class="text-red-400 font-bold glow-red">${privateIPs.length} Private/reserved IP${privateIPs.length!== 1 ? 's' : ''} filtered </span>: ${privateIPs.join(", ")}`);
+    messages.push(`⚠️ <span class="text-red-400 font-bold glow-red">${privateIPs.length} Private/reserved IP${privateIPs.length !== 1 ? 's' : ''} filtered </span>: ${privateIPs.join(", ")}`);
   }
-
   if (validEntries.length > 100) {
     messages.push(`⚠️ You entered <span class="text-green-400 font-bold">${validEntries.length}</span> valid entries</span>. Only the first 100 will be processed.`);
     messages.push(`⚠️ <span class="text-purple-400 font-bold">${validEntries.length - 100} entries skipped</span>: ${validEntries.slice(100).join(", ")}`);
@@ -143,71 +110,45 @@ async function fetchIPData() {
     const response = await fetch("/get_ip_info", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ 
+      body: JSON.stringify({
         ips: validEntries,
-        //client_name: clientName || "N/A"
-      })
+      }),
     });
-
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
       throw new Error(error.error || "Server error occurred.");
     }
-
     const data = await response.json();
+
     const processedCount = data.raw_table?.length || 0;
-
-    // Grab the raw summary
-
-// Now write the (possibly modified) summaryText to the page
-summaryDiv.innerHTML = data.summary;
+    summaryDiv.innerHTML = data.summary;
 
     if (Array.isArray(data.no_data_ips) && data.no_data_ips.length > 0) {
       const displayList = data.no_data_ips.slice(0, 5).join(", ");
       const more = data.no_data_ips.length > 5 ? ` and ${data.no_data_ips.length - 5} more...` : "";
       messages.push(`⚠️ ${data.no_data_ips.length} entr${data.no_data_ips.length !== 1 ? 'ies' : 'y'} returned no fields: ${displayList}${more}`);
     }
-    // ─ after  `const data = await response.json();`
-  const count   = data.raw_table?.length || 0;
-  const elapsed = data.elapsed;   // now coming from backend
-  // Prepare both messages first
 
-  const entryMsg = `✅ Data found for <span class="text-green-400 font-bold">${processedCount} entr${processedCount !== 1 ? 'ies' : 'y'} </span> in <span class="text-blue-400 font-bold">${data.elapsed} second${data.elapsed !== 1 ? 's' : ''}</span>.`;
-  const serviceList = Array.isArray(data.services_used) ? data.services_used : [];
-  const serviceMsg = `🔧 Service${serviceList.length !== 1 ? 's' : ''} used: <span class="text-purple-400 font-bold">${serviceList.join(", ") || "None"}</span>`;
+    const entryMsg = `✅ Data found for <span class="text-green-400 font-bold">${processedCount} entr${processedCount !== 1 ? 'ies' : 'y'} </span> in <span class="text-blue-400 font-bold">${data.elapsed} second${data.elapsed !== 1 ? 's' : ''}</span>.`;
+    const serviceList = Array.isArray(data.services_used) ? data.services_used : [];
+    const serviceMsg = `🔧 Service${serviceList.length !== 1 ? 's' : ''} used: <span class="text-purple-400 font-bold">${serviceList.join(", ") || "None"}</span>`;
 
-  // Unshift them in reverse order so they appear in the correct visual order
-  messages.unshift(serviceMsg);
-  messages.unshift(entryMsg);
-    // … after you've done:
-// const data = await response.json();
+    messages.unshift(serviceMsg);
+    messages.unshift(entryMsg);
 
-   const tableHead = document.getElementById("tableHead");
+    const tableHead = document.getElementById("tableHead");
     tableHead.innerHTML = "";
     const headerRow = document.createElement("tr");
 
     let headerTitles = [];
-    let useResolvedIP = false;
 
-if (data.column_label === "URL") {
-  // Only URLs provided
-  headerTitles = ["URL", "Resolved IP", "ISP", "Country", "Detections"
-  ,"Threat Actor", "Country Origin", "Target Sector", "Threat Category","Campaign Name", "Malware Family"];
-  useResolvedIP = true;
-} else if (data.column_label === "IP") {
-  // Only IPs provided
-  headerTitles = ["IP", "ISP", "Country", "Detections"
-  ,"Threat Actor", "Country Origin", "Target Sector", "Threat Category","Campaign Name", "Malware Family"];
-  useResolvedIP = false;  // <-- 🚨 HERE
-} else {
-  // Mixed IPs + URLs
-  headerTitles = ["IP/URL", "Resolved IP", "ISP", "Country", "Detections"
-  ,"Threat Actor","Country Origin", "Target Sector", "Threat Category", "Campaign Name", "Malware Family"];
-  useResolvedIP = true;
-}
+headerTitles = ["IP/URL", "ISP", "Country", "Detections",
+                "AbuseIPDB Confidence Score(%)","AbuseIPDB Report Count",
+                "Threat Actor", "Country Of Origin", "Target Sector",
+                "Threat Category", "Campaign Name", "Malware Families"];
 
 
-   for (const title of headerTitles) {
+    for (const title of headerTitles) {
       const th = document.createElement("th");
       th.innerText = title;
       th.className = "border px-3 py-2 text-center";
@@ -215,80 +156,62 @@ if (data.column_label === "URL") {
     }
     tableHead.appendChild(headerRow);
 
-       tableBody.innerHTML = "";
-for (const row of data.raw_table || []) {
-  // Add the new fields in destructuring, maintaining the previous order
-  // Assuming your backend appends these fields after 'detections' (which is index 4)
-  const [
-    inputValue,
-    resolvedIP,
-    isp,
-    country,
-    detections,
-    threatActorRaw,
-    countryOriginRaw,
-    targetSectorRaw,
-    threatCategoryRaw,
-    campaignNameRaw,
-    malwareFamiliesRaw,
-    // If there are more fields later, ignore here or adjust accordingly
-  ] = row;
+    tableBody.innerHTML = "";
+    for (const row of data.raw_table || []) {
+      const [
+        inputValue,
+        isp,
+        country,
+        detections,
+        abuseipdbConfidenceRaw,
+        abuseipdbReportCountRaw,
+        threatActorRaw,
+        countryOriginRaw,
+        targetSectorRaw,
+        threatCategoryRaw,
+        campaignNameRaw,
+        malwareFamiliesRaw,
+      ] = row;
 
-  // Helper to convert array or null/undefined to string for display
-  function formatField(field) {
-    if (!field) return "-";
-    if (Array.isArray(field)) return field.join(", ");
-    return field.toString();
-  }
+      function formatField(field) {
+        if (!field) return "-";
+        if (Array.isArray(field)) return field.join(", ");
+        return field.toString();
+      }
 
-  const threatActor = formatField(threatActorRaw);
-  const campaignName = formatField(campaignNameRaw);
-  const malwareFamilies = formatField(malwareFamiliesRaw);
-  const countryOrigin = formatField(countryOriginRaw);
-  const targetSector = formatField(targetSectorRaw);
-  const threatCategory = formatField(threatCategoryRaw);
+      const threatActor = formatField(threatActorRaw);
+      const campaignName = formatField(campaignNameRaw);
+      const malwareFamilies = formatField(malwareFamiliesRaw);
+      const countryOrigin = formatField(countryOriginRaw);
+      const targetSector = formatField(targetSectorRaw);
+      const threatCategory = formatField(threatCategoryRaw);
+      const abuseipdbConfidence = formatField(abuseipdbConfidenceRaw);
+      const abuseipdbReportCount = formatField(abuseipdbReportCountRaw);
 
-  let cells = [];
+      let cells = [];
 
-  if (data.column_label === "IP") {
-    // Only IPs → no Resolved IP column
-    cells = [inputValue, isp, country, detections, threatActor,countryOrigin, targetSector, threatCategory, campaignName, malwareFamilies];
-  } else if (data.column_label === "URL") {
-    // Only URLs → show Resolved IP
-    cells = [inputValue, resolvedIP || "-", isp, country, detections, threatActor,countryOrigin, targetSector, threatCategory, campaignName, malwareFamilies];
-  } else {
-    // Mixed input → if resolvedIP is different, it's a URL
-    const isURL = resolvedIP && resolvedIP !== "-" && resolvedIP !== inputValue;
-    if (isURL) {
-      cells = [inputValue, resolvedIP, isp, country, detections, threatActor,countryOrigin, targetSector, threatCategory, campaignName, malwareFamilies];
-    } else {
-      cells = [inputValue, "-", isp, country, detections, threatActor,countryOrigin, targetSector, threatCategory, campaignName, malwareFamilies];
+     cells = [inputValue, isp, country, detections,
+                 abuseipdbConfidence, abuseipdbReportCount,
+                 threatActor, countryOrigin, targetSector,
+                 threatCategory, campaignName, malwareFamilies];
+
+      const tr = document.createElement("tr");
+      for (const cell of cells) {
+        const td = document.createElement("td");
+        td.innerText = cell;
+        td.className = "border px-3 py-1 text-center";
+        tr.appendChild(td);
+      }
+      tableBody.appendChild(tr);
     }
-  }
-
-  const tr = document.createElement("tr");
-  for (const cell of cells) {
-    const td = document.createElement("td");
-    td.innerText = cell;
-    td.className = "border px-3 py-1 text-center";
-    tr.appendChild(td);
-  }
-  tableBody.appendChild(tr);
-}
-
 
     summarySection.classList.remove("hidden");
     tableSection.classList.remove("hidden");
     messageBlock.style.display = "block";
-    // New: clear and build each line so tags are parsed
-  // 1) Clear out old messages
-// 1. Clear out old content
-// clear out old content
-console.log("Final messages array:", messages);
 
-messageDiv.innerHTML = messages
-  .map(m => `<div class="font-medium mb-3">${m}</div>`)
-  .join("");
+    messageDiv.innerHTML = messages
+      .map(m => `<div class="font-medium mb-3">${m}</div>`)
+      .join("");
 
     requestAnimationFrame(() => {
       summarySection.classList.add("show");
@@ -311,6 +234,9 @@ messageDiv.innerHTML = messages
     lookupButton.textContent = "Get Info";
   }
 }
+
+// Remaining unrelated functions (copyToClipboard, downloadExcel, resetTool, etc.) remain unchanged.
+
 
 // Copy summary to clipboard
 function copyToClipboard(elementId, btnId) {
