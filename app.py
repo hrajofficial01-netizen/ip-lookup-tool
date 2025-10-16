@@ -643,7 +643,7 @@ def handle_ip_lookup():
             abuseipdb_info = ""
             try:
                 if abuse_score is not None and float(abuse_score) >10:
-                    abuseipdb_info = (f"  AbuseIPDB shows confidence Abuse Score of {abuse_score}% "
+                    abuseipdb_info = (f"  AbuseIPDB shows confidence of Abuse Score: {abuse_score}% "
                                     f"and it has been reported {abuse_report_count} times.")
             except (ValueError, TypeError):
                 abuseipdb_info = ""
