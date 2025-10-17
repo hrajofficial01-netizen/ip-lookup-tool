@@ -921,13 +921,32 @@ def handle_ip_lookup():
         safe_print(f"    {mask_key(k)}")
     if exhausted_other_keys:
         safe_print("❌ Exhausted Other Services:", ", ".join(exhausted_other_keys))
+    
     if len(vt_bad) > 10:
         safe_print("⚠️ Warning: More than 10 VT keys are exhausted. Consider rotating or refreshing your keys.")
     vt_unused = set(VT_KEYS) - (vt_keys_success | exhausted_vt_keys)
-    safe_print(f"🟡 Unused VT Keys: {len(vt_unused)}")
+    safe_print(f"\n🟡 Unused VT Keys: {len(vt_unused)}")
     for k in vt_unused:
         safe_print(f"    {mask_key(k)}")
-    safe_print("Used API Keys:")
+        # Log/use AbuseIPDB keys info along with VirusTotal keys info
+    abuseipdb_ok = abuseipdb_keys_used & abuseipdb_keys_success
+    abuseipdb_bad = exhausted_abuseipdb_keys.copy()
+
+    safe_print(f"\n✅ Successfully Used AbuseIPDB Keys: {len(abuseipdb_ok)}")
+    for k in abuseipdb_ok:
+        safe_print(f"    {mask_key(k)}")
+
+    safe_print(f"\n❌ Exhausted AbuseIPDB Keys: {len(abuseipdb_bad)}")
+    for k in abuseipdb_bad:
+        safe_print(f"    {mask_key(k)}")
+
+    # Optionally print unused AbuseIPDB keys as well
+    abuseipdb_unused = set(ABUSEIPDB_KEYS) - (abuseipdb_keys_success | exhausted_abuseipdb_keys)
+    safe_print(f"\n🟡 Unused AbuseIPDB Keys: {len(abuseipdb_unused)}")
+    for k in abuseipdb_unused:
+        safe_print(f"    {mask_key(k)}")
+
+    safe_print("\nUsed API Keys:")
     if vt_ok:
         safe_print("  VT Keys:", ", ".join(mask_key(k) for k in vt_ok))
     if "AbuseIPDB" in used_services:
@@ -966,6 +985,13 @@ def handle_ip_lookup():
         safe_print()
 
     safe_print("----------------------------\n")
+    
+    exhausted_messages = []
+    if len(exhausted_vt_keys) == len(VT_KEYS) and len(VT_KEYS) > 0:
+        exhausted_messages.append("❌ All VirusTotal API keys are exhausted for the day.")
+
+    if len(exhausted_abuseipdb_keys) == len(ABUSEIPDB_KEYS) and len(ABUSEIPDB_KEYS) > 0:
+        exhausted_messages.append("❌ All AbuseIPDB API keys are exhausted for the day.")
 
     return jsonify({
         "summary": summary_text,
@@ -980,7 +1006,8 @@ def handle_ip_lookup():
             "status_codes": r.get("status_codes", {})
             } for r in results if "ip" in r},
         "has_url": has_url,
-        "column_label": column_label
+        "column_label": column_label,
+        "exhausted_messages": exhausted_messages
     })
 
 @app.route("/download_excel", methods=["POST"])

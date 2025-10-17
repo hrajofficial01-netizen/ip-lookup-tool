@@ -93,6 +93,7 @@ async function fetchIPData() {
   if (duplicates.length > 0) {
     messages.push(`⚠️ <span class="text-red-400 font-bold glow-red">${duplicates.length} Duplicate${duplicates.length !== 1 ? 's' : ''} removed</span>: ${duplicates.join(", ")}`);
   }
+
   const privateIPs = rawEntries.filter(ip => isValidIP(ip) && isPrivateIP(ip));
   if (privateIPs.length > 0) {
     messages.push(`⚠️ <span class="text-red-400 font-bold glow-red">${privateIPs.length} Private/reserved IP${privateIPs.length !== 1 ? 's' : ''} filtered </span>: ${privateIPs.join(", ")}`);
@@ -123,6 +124,11 @@ async function fetchIPData() {
     const processedCount = data.raw_table?.length || 0;
     summaryDiv.innerHTML = data.summary;
 
+      if (Array.isArray(data.exhausted_messages) && data.exhausted_messages.length > 0) {
+  data.exhausted_messages.forEach(msg => {
+    messages.push(`<div class="font-medium mb-3 text-red-600">${msg}</div>`);
+  });
+}
     if (Array.isArray(data.no_data_ips) && data.no_data_ips.length > 0) {
       const displayList = data.no_data_ips.slice(0, 5).join(", ");
       const more = data.no_data_ips.length > 5 ? ` and ${data.no_data_ips.length - 5} more...` : "";
