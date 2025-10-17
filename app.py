@@ -425,7 +425,7 @@ def is_valid_ip(ip):
 
 from concurrent.futures import ThreadPoolExecutor
 
-def get_ip_info(ip):
+def get_ip_info(ip, vt_keys_exhausted=False):
     ip_info = {
         "ip": ip,
         "asn": "",
@@ -461,7 +461,7 @@ def get_ip_info(ip):
                 if resp.status_code == 200:
                     data = resp.json().get("data", {}).get("attributes", {})
                     return data, vt_key
-                elif resp.status_code in (401, 403):
+                elif resp.status_code in (401, 429, 403):
                     exhausted_vt_keys.add(vt_key)
                     continue
             except Exception:
@@ -510,15 +510,27 @@ def get_ip_info(ip):
 
         vt_result, vt_key = vt_future.result()
         abuseipdb_result, abuseipdb_key = abuseipdb_future.result()
+    if vt_result:
+        if vt_keys_exhausted:
+            print(f"DEBUG [get_ip_info]: VT keys exhausted, suppressing detection count for IP {ip}")
+            det_vt = 0
+        else:
+            det_vt = vt_result.get("last_analysis_stats", {}).get("malicious", 0) or 0
+        print(f"DEBUG [get_ip_info]: IP {ip}, detection count set to {det_vt}")
+        ip_info["detections"] = det_vt
 
     if vt_result:
         asn_vt = vt_result.get("asn", "")
         isp_vt = vt_result.get("as_owner", "")
         ctr_vt = vt_result.get("country", "")
-        det_vt = vt_result.get("last_analysis_stats", {}).get("malicious", 0) or 0
+
+        if not vt_keys_exhausted:
+            det_vt = vt_result.get("last_analysis_stats", {}).get("malicious", 0) or 0
+        else:
+            det_vt = 0
 
         ip_info["detections"] = det_vt
-        ip_info["service_sources"]["detections"] = "VirusTotal"
+        ip_info["service_sources"]["detections"] = "VirusTotal" if not vt_keys_exhausted else None
 
         if asn_vt:
             ip_info["asn"] = asn_vt
@@ -606,7 +618,9 @@ def handle_ip_lookup():
     data = request.json
     entries = data.get("ips", [])
     client_name = data.get("client_name", "").strip()
-    global used_services, unused_services, vt_keys_used, vt_keys_success, exhausted_other_keys, abuseipdb_keys_used, abuseipdb_keys_success, exhausted_abuseipdb_keys
+    global used_services, unused_services, vt_keys_used, vt_keys_success, exhausted_other_keys
+    global abuseipdb_keys_used, abuseipdb_keys_success, exhausted_abuseipdb_keys
+
     used_services.clear()
     unused_services.clear()
     vt_keys_used.clear()
@@ -632,7 +646,6 @@ def handle_ip_lookup():
         if len(valid_entries) >= 100:
             break
 
-    # Define column label for use in frontend and Excel table header
     types = set()
     for e in valid_entries:
         if is_valid_public_ip(e):
@@ -658,7 +671,8 @@ def handle_ip_lookup():
             return ", ".join(f"{k}: {v}" for k, v in value.items())
         return str(value)
 
-    def build_summary(data, entry_type):
+    def build_summary(data, entry_type, vt_keys_exhausted=False):
+        print(f"DEBUG [build_summary]: IP={data.get('ip')}, vt_keys_exhausted={vt_keys_exhausted}")
         def is_meaningful(value):
             if value is None:
                 return False
@@ -699,15 +713,21 @@ def handle_ip_lookup():
                                       f"and it has been reported {abuse_report_count} times.")
             except (ValueError, TypeError):
                 abuseipdb_info = ""
+
+            detection_info = (
+                f" with VirusTotal detection count of {data.get('detections', 0)}/95."
+            ) if not vt_keys_exhausted else ""
+
             summary = (
                 f"The IP: {data.get('ip')} belongs to ISP: {data.get('isp') or 'N/A'}, "
-                f"from Country: {data.get('country') or 'N/A'}, with VirusTotal detection count of {data.get('detections', 0)}/95."
+                f"from Country: {data.get('country') or 'N/A'}"
+                + detection_info
                 + abuseipdb_info
                 + ioc_summary
             )
         return summary
 
-    def resolve_entry(e, client_name=client_name, timestamp_ist=None):
+    def resolve_entry(e, vt_keys_exhausted, client_name=client_name, timestamp_ist=None):
         session = SessionLocal()
         try:
             record = session.query(LookupData).filter_by(entry=e).first()
@@ -730,10 +750,10 @@ def handle_ip_lookup():
                     "target_sector": record.target_sector or "-",
                     "threat_category": record.threat_category or "-",
                 }
-                data["summary"] = build_summary(data, record.entry_type)
+                print(f"DEBUG [resolve_entry]: IP={e}, vt_keys_exhausted={vt_keys_exhausted}")
+                data["summary"] = build_summary(data, record.entry_type, vt_keys_exhausted=False)
                 if data.get("entry_type") == "url" and data.get("query"):
                     data["query"] = data["query"].lower()
-                # Ensure fallback fields
                 if not data.get("ip"):
                     data["ip"] = e
                 if not data.get("query"):
@@ -742,7 +762,7 @@ def handle_ip_lookup():
             else:
                 if is_valid_public_ip(e):
                     with ThreadPoolExecutor(max_workers=3) as executor:
-                        vt_future = executor.submit(get_ip_info, e)
+                        vt_future = executor.submit(get_ip_info, e, vt_keys_exhausted=vt_keys_exhausted)
                         tie_future = executor.submit(get_ip_tie_data, e)
                         actor_info_future = executor.submit(get_actor_info_from_entry, e, "ip")
                         vt_result = vt_future.result() or {}
@@ -778,7 +798,10 @@ def handle_ip_lookup():
                         vt_result["ip"] = e
                     if not vt_result.get("query"):
                         vt_result["query"] = e
-                    vt_result["summary"] = build_summary(vt_result, "ip")
+                    print(f"DEBUG [resolve_entry]: IP={e}, vt_keys_exhausted={vt_keys_exhausted}")
+                    vt_result["summary"] = build_summary(vt_result, "ip", vt_keys_exhausted=vt_keys_exhausted)
+                    if vt_keys_exhausted:
+                        vt_result["detections"] = None
                     return vt_result
                 elif is_valid_url(e):
                     with ThreadPoolExecutor(max_workers=3) as executor:
@@ -814,21 +837,35 @@ def handle_ip_lookup():
                         enrichment_value = enrichment.get(key)
                         vt_result[key] = serialize_field(enrichment_value)
                     vt_result["entry_type"] = "url"
-                    vt_result["summary"] = build_summary(vt_result, "url")
+                    vt_result["summary"] = build_summary(vt_result, "url", vt_keys_exhausted=vt_keys_exhausted)
                     if vt_result.get("query"):
                         vt_result["query"] = vt_result["query"].lower()
                     if not vt_result.get("ip"):
                         vt_result["ip"] = e
                     if not vt_result.get("query"):
                         vt_result["query"] = e
+                    if vt_keys_exhausted:
+                        vt_result["detections"] = None
                     return vt_result
                 else:
                     return None
         finally:
             session.close()
 
-    results = list(executor_main.map(resolve_entry, valid_entries))
-    results = [r for r in results if r is not None]
+    with ThreadPoolExecutor(max_workers=10) as executor_main:
+        # First run with vt_keys_exhausted = False to perform all lookups and allow VT keys exhaustion updates
+        futures = [executor_main.submit(resolve_entry, e, False) for e in valid_entries]
+        results = [f.result() for f in futures]
+
+    # Compute exhaustion status after all lookups complete
+    vt_keys_exhausted = (len(exhausted_vt_keys) == len(VT_KEYS) and len(VT_KEYS) > 0)
+
+    # Rebuild summaries with correct exhaustion flag in place
+    for r in results:
+        r["summary"] = build_summary(r, r.get("entry_type", "ip"), vt_keys_exhausted=vt_keys_exhausted)
+        if vt_keys_exhausted:
+            r["detections"] = None
+
     timestamp_ist = datetime.now(pytz.timezone("Asia/Kolkata"))
 
     raw_table = []
@@ -836,7 +873,9 @@ def handle_ip_lookup():
         ip_or_url = r.get("query") or r.get("ip") or "N/A"
         isp = r.get("isp", "")
         country = r.get("country", "")
-        detections = r.get("detections", 0)
+        detections = r.get("detections")
+        if detections is None:
+            detections = "-"
         abuseipdb_confidence = str(r.get("abuseipdb_confidence_score", "-"))
         abuseipdb_report_count = str(r.get("abuseipdb_report_count", "-"))
         threat_actor = r.get("threat_actor", "-")
@@ -861,12 +900,12 @@ def handle_ip_lookup():
             malware_families
         ])
 
-    # Update DB for new API lookups (not from Database cache)
     for r in results:
         if r.get("used_service") != "Database":
+            if vt_keys_exhausted:
+                continue  # Skip updating DB for new entries if all VT keys exhausted
             upsert_lookup_data(r)
 
-    # Insert search event and log entry for tracking
     for r in results:
         entry_type = r.get("entry_type", r.get("type", "IP"))
         if entry_type.lower() == "url":
@@ -881,15 +920,14 @@ def handle_ip_lookup():
         insert_search_event(entry, client_name, timestamp_ist, entry_type=entry_type)
         upsert_search_log(entry, client_name, timestamp_ist, entry_type=entry_type)
 
-    # Find entries with no data for warning display
     has_url = any(r.get("entry_type") == "url" for r in results)
     no_data_ips = []
     for r in results:
         is_url = (r.get("entry_type") == "url")
-        det = r.get("detections", 0)
+        det = r.get("detections")
         isp_val, ctr_val = r.get("isp", ""), r.get("country", "")
         if is_url:
-            if det == 0 and not isp_val and not ctr_val:
+            if (det is None or det == 0) and not isp_val and not ctr_val:
                 no_data_ips.append(r.get("ip") or r.get("query"))
         else:
             if not isp_val and not ctr_val:
@@ -915,48 +953,47 @@ def handle_ip_lookup():
     safe_print(f"🔧 Services Unused     : {', '.join(sorted(s for s in unused_services if s)) or 'None'}")
     safe_print(f"✅ Successfully Used VT Keys: {len(vt_ok)}")
     for k in vt_ok:
-        safe_print(f"    {mask_key(k)}")
+        safe_print(f"    {mask_key(k)}")
     safe_print(f"❌ Exhausted VT Keys: {len(vt_bad)}")
     for k in vt_bad:
-        safe_print(f"    {mask_key(k)}")
+        safe_print(f"    {mask_key(k)}")
     if exhausted_other_keys:
         safe_print("❌ Exhausted Other Services:", ", ".join(exhausted_other_keys))
-    
+
     if len(vt_bad) > 10:
         safe_print("⚠️ Warning: More than 10 VT keys are exhausted. Consider rotating or refreshing your keys.")
     vt_unused = set(VT_KEYS) - (vt_keys_success | exhausted_vt_keys)
     safe_print(f"\n🟡 Unused VT Keys: {len(vt_unused)}")
     for k in vt_unused:
-        safe_print(f"    {mask_key(k)}")
-        # Log/use AbuseIPDB keys info along with VirusTotal keys info
+        safe_print(f"    {mask_key(k)}")
+
     abuseipdb_ok = abuseipdb_keys_used & abuseipdb_keys_success
     abuseipdb_bad = exhausted_abuseipdb_keys.copy()
 
     safe_print(f"\n✅ Successfully Used AbuseIPDB Keys: {len(abuseipdb_ok)}")
     for k in abuseipdb_ok:
-        safe_print(f"    {mask_key(k)}")
+        safe_print(f"    {mask_key(k)}")
 
     safe_print(f"\n❌ Exhausted AbuseIPDB Keys: {len(abuseipdb_bad)}")
     for k in abuseipdb_bad:
-        safe_print(f"    {mask_key(k)}")
+        safe_print(f"    {mask_key(k)}")
 
-    # Optionally print unused AbuseIPDB keys as well
     abuseipdb_unused = set(ABUSEIPDB_KEYS) - (abuseipdb_keys_success | exhausted_abuseipdb_keys)
     safe_print(f"\n🟡 Unused AbuseIPDB Keys: {len(abuseipdb_unused)}")
     for k in abuseipdb_unused:
-        safe_print(f"    {mask_key(k)}")
+        safe_print(f"    {mask_key(k)}")
 
     safe_print("\nUsed API Keys:")
     if vt_ok:
-        safe_print("  VT Keys:", ", ".join(mask_key(k) for k in vt_ok))
+        safe_print("  VT Keys:", ", ".join(mask_key(k) for k in vt_ok))
     if "AbuseIPDB" in used_services:
-        safe_print("  AbuseIPDB Key:", ", ".join(mask_key(k) for k in abuseipdb_keys_used))
+        safe_print("  AbuseIPDB Key:", ", ".join(mask_key(k) for k in abuseipdb_keys_used))
     if "DBIP" in used_services:
-        safe_print("  DBIP Key:", mask_key(DBIP_KEY))
+        safe_print("  DBIP Key:", mask_key(DBIP_KEY))
     if "IPINFO" in used_services:
-        safe_print("  IPInfo Key:", mask_key(IPINFO_KEY))
+        safe_print("  IPInfo Key:", mask_key(IPINFO_KEY))
     if "APIVoid" in used_services:
-        safe_print("  APIVoid Key:", mask_key(APIVOID_KEY))
+        safe_print("  APIVoid Key:", mask_key(APIVOID_KEY))
 
     safe_print("\n📋 Per Entry Summary:\n")
     for r in results:
