@@ -58,7 +58,7 @@ def safe_print(*args, **kwargs):
 
 # API keys from environment
 VT_KEYS = [key.strip() for key in os.getenv("VT_API_KEYS", "").split(",") if key.strip()]
-ABUSEIPDB_KEY = os.getenv("ABUSEIPDB_API_KEY")
+ABUSEIPDB_KEYS = [key.strip() for key in os.getenv("ABUSEIPDB_API_KEYS", "").split(",") if key.strip()]
 DBIP_KEY = os.getenv("DBIP_API_KEY")
 IPINFO_KEY = os.getenv("IPINFO_API_KEY")
 APIVOID_KEY = os.getenv("APIVOID_API_KEY")
@@ -67,9 +67,16 @@ APIVOID_KEY = os.getenv("APIVOID_API_KEY")
 vt_key_index = 0
 vt_key_lock = threading.Lock()
 exhausted_vt_keys = set()
-exhausted_other_keys = set()
 vt_keys_used = set()
 vt_keys_success = set()
+# Add AbuseIPDB keys variables (similar structure)
+abuseipdb_key_index = 0
+abuseipdb_key_lock = threading.Lock()
+exhausted_abuseipdb_keys = set()
+abuseipdb_keys_used = set()
+abuseipdb_keys_success = set()
+
+exhausted_other_keys = set()
 used_services = set()
 unused_services = set()
 country_cache = {}
@@ -225,6 +232,18 @@ def get_country_name(code):
 def mask_key(key):
     return key[:4] + "..." + key[-4:] if key else "None"
 
+
+def get_next_abuseipdb_key():
+    global abuseipdb_key_index
+    with abuseipdb_key_lock:
+        for _ in range(len(ABUSEIPDB_KEYS)):
+            key = ABUSEIPDB_KEYS[abuseipdb_key_index % len(ABUSEIPDB_KEYS)]
+            abuseipdb_key_index += 1
+            if key and key not in exhausted_abuseipdb_keys:
+                return key
+        return None
+
+
 def get_next_vt_key():
     global vt_key_index
     with vt_key_lock:
@@ -330,25 +349,39 @@ def query_virustotal(ip):
 # AbuseIPDB Query with Rate-Limit Handling
 # -------------------------------
 def query_abuseipdb(ip):
-    if not ABUSEIPDB_KEY:
-        return {}, "NoKey"
-    headers = {"Key": ABUSEIPDB_KEY, "Accept": "application/json"}
-    try:
-        resp = requests.get(f"https://api.abuseipdb.com/api/v2/check?ipAddress={ip}&maxAgeInDays=90", headers=headers, timeout=10)
-        if resp.status_code == 429:
-            exhausted_other_keys.add("AbuseIPDB")
-            return {}, "RateLimit"
-        if resp.status_code != 200:
-            return {}, f"AbuseIPDB Error {resp.status_code}"
-        data = resp.json().get("data", {})
-        used_services.add("AbuseIPDB")
-        return {
-            "isp": data.get("isp"),
-            "country": get_country_name(data.get("countryCode")),
-            "detections": data.get("totalReports", 0)
-        }, "AbuseIPDB"
-    except Exception as e:
-        return {}, f"AbuseIPDB Exception: {str(e)}"
+    tried = set()
+    while True:
+        key = get_next_abuseipdb_key()
+        if not key or key in tried:
+            break
+        tried.add(key)
+        headers = {"Key": key, "Accept": "application/json"}
+        try:
+            resp = requests.get(
+                f"https://api.abuseipdb.com/api/v2/check?ipAddress={ip}&maxAgeInDays=90",
+                headers=headers, timeout=10
+            )
+            if resp.status_code == 429:  # Rate limit
+                exhausted_abuseipdb_keys.add(key)
+                continue
+            if resp.status_code in (401, 403):  # Auth error also consider exhausted
+                exhausted_abuseipdb_keys.add(key)
+                continue
+            if resp.status_code != 200:
+                return {}, f"AbuseIPDB Error {resp.status_code}", key
+            data = resp.json().get("data", {})
+            used_services.add("AbuseIPDB")
+            abuseipdb_keys_used.add(key)
+            abuseipdb_keys_success.add(key)
+            return {
+                "isp": data.get("isp"),
+                "country": get_country_name(data.get("countryCode")),
+                "detections": data.get("totalReports", 0)
+            }, "AbuseIPDB", key
+        except Exception as e:
+            exhausted_abuseipdb_keys.add(key)
+            return {}, f"AbuseIPDB Exception: {str(e)}", key
+    return {}, "NoAbuseIPDBKeyAvailable", None
 
 def is_valid_public_ip(ip):
     try:
@@ -416,7 +449,6 @@ def get_ip_info(ip):
             if not vt_key:
                 return None, None
             used_services.add("VirusTotal")
-            used_services.add("AbuseIPDB")
             headers = {"x-apikey": vt_key}
             try:
                 resp = requests.get(
@@ -439,28 +471,45 @@ def get_ip_info(ip):
         return None, None
 
     def call_abuseipdb():
-        if not ABUSEIPDB_KEY:
-            return None
-        try:
-            resp = requests.get(
-                "https://api.abuseipdb.com/api/v2/check",
-                headers={"Key": ABUSEIPDB_KEY, "Accept": "application/json"},
-                params={"ipAddress": ip, "maxAgeInDays": "90"},
-                timeout=10
-            )
-            ip_info["status_codes"]["AbuseIPDB"] = resp.status_code
-            if resp.status_code == 200:
-                return resp.json().get("data", {})
-        except Exception:
-            ip_info["status_codes"]["AbuseIPDB"] = "Error"
-        return None
+        tried = set()
+        while True:
+            key = get_next_abuseipdb_key()
+            if not key or key in tried:
+                break
+            tried.add(key)
+            headers = {"Key": key, "Accept": "application/json"}
+            try:
+                resp = requests.get(
+                    "https://api.abuseipdb.com/api/v2/check",
+                    headers=headers,
+                    params={"ipAddress": ip, "maxAgeInDays": "90"},
+                    timeout=10
+                )
+                ip_info["status_codes"]["AbuseIPDB"] = resp.status_code
+                if resp.status_code == 429:
+                    exhausted_abuseipdb_keys.add(key)
+                    continue
+                if resp.status_code in (401, 403):
+                    exhausted_abuseipdb_keys.add(key)
+                    continue
+                if resp.status_code != 200:
+                    return {}, None
+                abuseipdb_keys_used.add(key)
+                abuseipdb_keys_success.add(key)
+                used_services.add("AbuseIPDB")
+                return resp.json().get("data", {}), key
+            except Exception:
+                ip_info["status_codes"]["AbuseIPDB"] = "Error"
+                exhausted_abuseipdb_keys.add(key)
+                return {}, None
+        return None, None
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         vt_future = executor.submit(call_virustotal)
         abuseipdb_future = executor.submit(call_abuseipdb)
 
         vt_result, vt_key = vt_future.result()
-        abuseipdb_result = abuseipdb_future.result()
+        abuseipdb_result, abuseipdb_key = abuseipdb_future.result()
 
     if vt_result:
         asn_vt = vt_result.get("asn", "")
@@ -500,8 +549,7 @@ def get_ip_info(ip):
 
         if ip_info["used_service"] != "VirusTotal":
             ip_info["used_service"] = "AbuseIPDB"
-            ip_info["used_key"] = ABUSEIPDB_KEY
-            used_services.add("AbuseIPDB")
+            ip_info["used_key"] = abuseipdb_key
 
     return ip_info
 
@@ -558,12 +606,15 @@ def handle_ip_lookup():
     data = request.json
     entries = data.get("ips", [])
     client_name = data.get("client_name", "").strip()
-    global used_services, unused_services, vt_keys_used, vt_keys_success, exhausted_other_keys
+    global used_services, unused_services, vt_keys_used, vt_keys_success, exhausted_other_keys, abuseipdb_keys_used, abuseipdb_keys_success, exhausted_abuseipdb_keys
     used_services.clear()
     unused_services.clear()
     vt_keys_used.clear()
     vt_keys_success.clear()
     exhausted_other_keys.clear()
+    abuseipdb_keys_used.clear()
+    abuseipdb_keys_success.clear()
+    exhausted_abuseipdb_keys.clear()
 
     seen = set()
     valid_entries = []
@@ -595,7 +646,7 @@ def handle_ip_lookup():
     else:
         column_label = "IP/URL"
 
-    from tie_service import get_ip_tie_data, get_domain_tie_data, extract_enrichment_fields
+    from tie_service import get_ip_tie_data, get_domain_tie_data, extract_enrichment_fields, get_actor_info_from_entry
     from concurrent.futures import ThreadPoolExecutor
 
     def serialize_field(value):
@@ -614,6 +665,7 @@ def handle_ip_lookup():
             if isinstance(value, str):
                 return value.strip().lower() not in ("", "n/a", "-")
             return True
+
         ioc_parts = []
         for field, label in [
             ("threat_actor", "threat actor"),
@@ -642,9 +694,9 @@ def handle_ip_lookup():
             abuse_report_count = data.get('abuseipdb_report_count') or '0'
             abuseipdb_info = ""
             try:
-                if abuse_score is not None and float(abuse_score) >10:
+                if abuse_score is not None and float(abuse_score) > 10:
                     abuseipdb_info = (f"  AbuseIPDB shows confidence of Abuse Score: {abuse_score}% "
-                                    f"and it has been reported {abuse_report_count} times.")
+                                      f"and it has been reported {abuse_report_count} times.")
             except (ValueError, TypeError):
                 abuseipdb_info = ""
             summary = (
@@ -654,7 +706,6 @@ def handle_ip_lookup():
                 + ioc_summary
             )
         return summary
-
 
     def resolve_entry(e, client_name=client_name, timestamp_ist=None):
         session = SessionLocal()
@@ -682,6 +733,11 @@ def handle_ip_lookup():
                 data["summary"] = build_summary(data, record.entry_type)
                 if data.get("entry_type") == "url" and data.get("query"):
                     data["query"] = data["query"].lower()
+                # Ensure fallback fields
+                if not data.get("ip"):
+                    data["ip"] = e
+                if not data.get("query"):
+                    data["query"] = e
                 return data
             else:
                 if is_valid_public_ip(e):
@@ -689,27 +745,24 @@ def handle_ip_lookup():
                         vt_future = executor.submit(get_ip_info, e)
                         tie_future = executor.submit(get_ip_tie_data, e)
                         actor_info_future = executor.submit(get_actor_info_from_entry, e, "ip")
-                        vt_result = vt_future.result()
+                        vt_result = vt_future.result() or {}
                         tie_result = tie_future.result()
                         actor_details = actor_info_future.result()
                     if tie_result and tie_result.get("data"):
                         enrichment = extract_enrichment_fields(tie_result)
                         used_services.add("ThreatIntel")
                     else:
-                        enrichment = {
-                            "threat_actor": None,
-                            "campaign_name": None,
-                            "malware_families": None,
-                            "country_origin": None,
-                            "target_sector": None,
-                            "threat_category": None,
-                        }
+                        enrichment = {k: None for k in
+                                      ("threat_actor", "campaign_name", "malware_families", "country_origin",
+                                       "target_sector", "threat_category")}
                     if actor_details:
                         enrichment.update({
                             "country_origin": actor_details.get("country_origin", enrichment.get("country_origin")),
                             "target_sector": actor_details.get("target_sector", enrichment.get("target_sector")),
                             "threat_category": actor_details.get("threat_category", enrichment.get("threat_category")),
                         })
+                    if vt_result is None:
+                        vt_result = {}
                     for key in [
                         "threat_actor",
                         "campaign_name",
@@ -721,6 +774,10 @@ def handle_ip_lookup():
                         enrichment_value = enrichment.get(key)
                         vt_result[key] = serialize_field(enrichment_value)
                     vt_result["entry_type"] = "ip"
+                    if not vt_result.get("ip"):
+                        vt_result["ip"] = e
+                    if not vt_result.get("query"):
+                        vt_result["query"] = e
                     vt_result["summary"] = build_summary(vt_result, "ip")
                     return vt_result
                 elif is_valid_url(e):
@@ -728,27 +785,24 @@ def handle_ip_lookup():
                         vt_future = executor.submit(lookup_url, e)
                         tie_future = executor.submit(get_domain_tie_data, e)
                         actor_info_future = executor.submit(get_actor_info_from_entry, e, "url")
-                        vt_result = vt_future.result()
+                        vt_result = vt_future.result() or {}
                         tie_result = tie_future.result()
                         actor_details = actor_info_future.result()
-                    if tie_result and "data" in tie_result and tie_result["data"]:
+                    if tie_result and tie_result.get("data"):
                         used_services.add("ThreatIntel")
                         enrichment = extract_enrichment_fields(tie_result)
                     else:
-                        enrichment = {
-                            "threat_actor": None,
-                            "campaign_name": None,
-                            "malware_families": None,
-                            "country_origin": None,
-                            "target_sector": None,
-                            "threat_category": None,
-                        }
+                        enrichment = {k: None for k in
+                                      ("threat_actor", "campaign_name", "malware_families", "country_origin",
+                                       "target_sector", "threat_category")}
                     if actor_details:
                         enrichment.update({
                             "country_origin": actor_details.get("country_origin", enrichment.get("country_origin")),
                             "target_sector": actor_details.get("target_sector", enrichment.get("target_sector")),
                             "threat_category": actor_details.get("threat_category", enrichment.get("threat_category")),
                         })
+                    if vt_result is None:
+                        vt_result = {}
                     for key in [
                         "threat_actor",
                         "campaign_name",
@@ -763,6 +817,10 @@ def handle_ip_lookup():
                     vt_result["summary"] = build_summary(vt_result, "url")
                     if vt_result.get("query"):
                         vt_result["query"] = vt_result["query"].lower()
+                    if not vt_result.get("ip"):
+                        vt_result["ip"] = e
+                    if not vt_result.get("query"):
+                        vt_result["query"] = e
                     return vt_result
                 else:
                     return None
@@ -815,6 +873,11 @@ def handle_ip_lookup():
             entry = r.get("query") or r.get("ip")
         else:
             entry = r.get("ip")
+
+        if not entry:
+            safe_print(f"Skipping insert_search_event and upsert_search_log for missing entry in result: {r}")
+            continue
+
         insert_search_event(entry, client_name, timestamp_ist, entry_type=entry_type)
         upsert_search_log(entry, client_name, timestamp_ist, entry_type=entry_type)
 
@@ -868,7 +931,7 @@ def handle_ip_lookup():
     if vt_ok:
         safe_print("  VT Keys:", ", ".join(mask_key(k) for k in vt_ok))
     if "AbuseIPDB" in used_services:
-        safe_print("  AbuseIPDB Key:", mask_key(ABUSEIPDB_KEY))
+        safe_print("  AbuseIPDB Key:", ", ".join(mask_key(k) for k in abuseipdb_keys_used))
     if "DBIP" in used_services:
         safe_print("  DBIP Key:", mask_key(DBIP_KEY))
     if "IPINFO" in used_services:
