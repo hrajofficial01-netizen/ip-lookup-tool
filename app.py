@@ -719,7 +719,7 @@ def handle_ip_lookup():
             ) if not vt_keys_exhausted else ""
 
             summary = (
-                f"The IP: {data.get('ip')} belongs to ISP: {data.get('isp') or 'N/A'}, "
+                f"The IP: {data.get('query')} belongs to ISP: {data.get('isp') or 'N/A'}, "
                 f"from Country: {data.get('country') or 'N/A'}"
                 + detection_info
                 + abuseipdb_info
@@ -735,7 +735,7 @@ def handle_ip_lookup():
             if record:
                 used_services.add("Database")
                 data = {
-                    "ip": record.associated_ip if record.entry_type == "url" else record.entry,
+                    "ip": "record.associated_ip" if record.entry_type == "url" else record.entry,
                     "query": record.entry,
                     "isp": record.isp or "",
                     "asn": record.asn or "",
@@ -997,7 +997,7 @@ def handle_ip_lookup():
 
     safe_print("\n📋 Per Entry Summary:\n")
     for r in results:
-        ip_entry = r.get("ip") or r.get("query")
+        ip_entry =r.get("query")
         if not ip_entry:
             continue
 
