@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>IP & URL Lookup</title>
+  <title>IOC Lookup</title>
   <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
@@ -22,7 +22,7 @@
   <!-- Header -->
   <div class="sticky top-0 z-50 shadow-lg">
     <div class="bg-green-600 text-white px-6 py-4 rounded-t-2xl flex items-center justify-between">
-      <h1 class="text-xl sm:text-2xl font-semibold">IP & URL Lookup</h1> <!-- ✅ Updated title -->
+      <h1 class="text-xl sm:text-2xl font-semibold">IOC Lookup (IP/URL/HASH)</h1> <!-- ✅ Updated title -->
       <button id="toggleTheme" class="text-white text-xl hover:text-yellow-300 transition duration-300">
         <i class="ph ph-moon-stars"></i>
       </button>
@@ -56,7 +56,7 @@
         </div>
       </div>
 
-      <p id="errorMsg" class="text-red-400 text-left mt-2 hidden font-semibold text-sm sm:text-lg">⚠️ Please enter at least one valid IP or URL.</p> <!-- ✅ Updated message -->
+      <p id="errorMsg" class="text-red-400 text-left mt-2 hidden font-semibold text-sm sm:text-lg">⚠️ Please enter at least one valid IP or URL or HASH.</p> <!-- ✅ Updated message -->
 
       <div id="spinner" class="mt-4 hidden flex justify-start">
         <div class="spinner"></div>
@@ -134,7 +134,7 @@
     <div class="footer-divider"></div>
 
     <div class="footer-copy">
-      &copy; <span id="current-year"></span> IP & URL Lookup Tool. All rights reserved.
+      &copy; <span id="current-year"></span> IOC Lookup Tool. All rights reserved.
     </div>
   </div>
 </footer>

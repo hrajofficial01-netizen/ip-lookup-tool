@@ -6,6 +6,14 @@ function isValidIP(ip) {
   }
 }
 
+function isValidHash(str) {
+  const s = str.toLowerCase();
+  return /^[a-f0-9]{32}$/.test(s) || // MD5
+         /^[a-f0-9]{40}$/.test(s) || // SHA1
+         /^[a-f0-9]{64}$/.test(s);   // SHA256
+}
+
+
 function isPrivateIP(ip) {
   const parts = ip.split(".").map(Number);
   if (parts.length !== 4 || parts.some(isNaN)) return false;
@@ -61,8 +69,14 @@ async function fetchIPData() {
   const seen = new Set();
   const validIPs = [];
   const validURLs = [];
+  const validHashes = [];
   const skippedInvalid = [];
   const duplicates = [];
+
+  function isValidHash(str) {
+    const s = str.toLowerCase();
+    return /^[a-f0-9]{32}$/.test(s) || /^[a-f0-9]{40}$/.test(s) || /^[a-f0-9]{64}$/.test(s);
+  }
 
   for (const entry of rawEntries) {
     if (seen.has(entry)) {
@@ -74,16 +88,18 @@ async function fetchIPData() {
       if (!isPrivateIP(entry)) validIPs.push(entry);
     } else if (isValidURL(entry)) {
       validURLs.push(entry);
+    } else if (isValidHash(entry)) {
+      validHashes.push(entry);
     } else {
       skippedInvalid.push(entry);
     }
   }
 
-  let validEntries = [...validIPs, ...validURLs];
+  let validEntries = [...validIPs, ...validURLs, ...validHashes];
   const messages = [];
 
   if (validEntries.length === 0) {
-    errorMsg.textContent = "⚠️ No valid public IPs or URLs found.";
+    errorMsg.textContent = "⚠️ No valid public IPs, URLs or Hashes found.";
     errorMsg.classList.remove("hidden");
     return;
   }
@@ -99,7 +115,7 @@ async function fetchIPData() {
     messages.push(`⚠️ <span class="text-red-400 font-bold glow-red">${privateIPs.length} Private/reserved IP${privateIPs.length !== 1 ? 's' : ''} filtered </span>: ${privateIPs.join(", ")}`);
   }
   if (validEntries.length > 100) {
-    messages.push(`⚠️ You entered <span class="text-green-400 font-bold">${validEntries.length}</span> valid entries</span>. Only the first 100 will be processed.`);
+    messages.push(`⚠️ You entered <span class="text-green-400 font-bold">${validEntries.length}</span> valid entries. Only the first 100 will be processed.`);
     messages.push(`⚠️ <span class="text-purple-400 font-bold">${validEntries.length - 100} entries skipped</span>: ${validEntries.slice(100).join(", ")}`);
     validEntries = validEntries.slice(0, 100);
   }
@@ -124,11 +140,11 @@ async function fetchIPData() {
     const processedCount = data.raw_table?.length || 0;
     summaryDiv.innerHTML = data.summary;
 
-      if (Array.isArray(data.exhausted_messages) && data.exhausted_messages.length > 0) {
-  data.exhausted_messages.forEach(msg => {
-    messages.push(`<div class="font-medium mb-3 text-red-600">${msg}</div>`);
-  });
-}
+    if (Array.isArray(data.exhausted_messages) && data.exhausted_messages.length > 0) {
+      data.exhausted_messages.forEach(msg => {
+        messages.push(`<div class="font-medium mb-3 text-red-600">${msg}</div>`);
+      });
+    }
     if (Array.isArray(data.no_data_ips) && data.no_data_ips.length > 0) {
       const displayList = data.no_data_ips.slice(0, 5).join(", ");
       const more = data.no_data_ips.length > 5 ? ` and ${data.no_data_ips.length - 5} more...` : "";
@@ -146,13 +162,10 @@ async function fetchIPData() {
     tableHead.innerHTML = "";
     const headerRow = document.createElement("tr");
 
-    let headerTitles = [];
-
-headerTitles = ["IP/URL", "ISP", "Country", "Detections",
-                "AbuseIPDB Confidence Score(%)","AbuseIPDB Report Count",
-                "Threat Actor", "Country Of Origin", "Target Sector",
-                "Threat Category", "Campaign Name", "Malware Families"];
-
+    let headerTitles = ["IP/URL/HASH", "ISP", "Country", "Detections",
+      "AbuseIPDB Confidence Score(%)","AbuseIPDB Report Count",
+      "Threat Actor", "Country Of Origin", "Target Sector",
+      "Threat Category", "Campaign Name", "Malware Families"];
 
     for (const title of headerTitles) {
       const th = document.createElement("th");
@@ -194,12 +207,10 @@ headerTitles = ["IP/URL", "ISP", "Country", "Detections",
       const abuseipdbConfidence = formatField(abuseipdbConfidenceRaw);
       const abuseipdbReportCount = formatField(abuseipdbReportCountRaw);
 
-      let cells = [];
-
-     cells = [inputValue, isp, country, detections,
-                 abuseipdbConfidence, abuseipdbReportCount,
-                 threatActor, countryOrigin, targetSector,
-                 threatCategory, campaignName, malwareFamilies];
+      let cells = [inputValue, isp, country, detections,
+        abuseipdbConfidence, abuseipdbReportCount,
+        threatActor, countryOrigin, targetSector,
+        threatCategory, campaignName, malwareFamilies];
 
       const tr = document.createElement("tr");
       for (const cell of cells) {
@@ -215,9 +226,7 @@ headerTitles = ["IP/URL", "ISP", "Country", "Detections",
     tableSection.classList.remove("hidden");
     messageBlock.style.display = "block";
 
-    messageDiv.innerHTML = messages
-      .map(m => `<div class="font-medium mb-3">${m}</div>`)
-      .join("");
+    messageDiv.innerHTML = messages.map(m => `<div class="font-medium mb-3">${m}</div>`).join("");
 
     requestAnimationFrame(() => {
       summarySection.classList.add("show");
@@ -240,6 +249,7 @@ headerTitles = ["IP/URL", "ISP", "Country", "Detections",
     lookupButton.textContent = "Get Info";
   }
 }
+
 
 // Remaining unrelated functions (copyToClipboard, downloadExcel, resetTool, etc.) remain unchanged.
 

@@ -88,6 +88,16 @@ atexit.register(lambda: executor_main.shutdown(wait=True))
 
 
 from concurrent.futures import ThreadPoolExecutor
+
+THREAT_FIELDS = [
+    "threat_actor",
+    "campaign_name",
+    "malware_families",
+    "country_origin",
+    "target_sector",
+    "threat_category",
+]
+
 def entryabuseipdburl(url):
     # AbuseIPDB doesn't support URL lookups
     # Return empty dict to keep interface consistent
@@ -393,6 +403,14 @@ def is_valid_public_ip(ip):
 import re
 from urllib.parse import urlparse
 
+def is_valid_hash(s):
+    s = s.lower()
+    return (
+        re.fullmatch(r"[a-f0-9]{32}", s) or   # MD5
+        re.fullmatch(r"[a-f0-9]{40}", s) or   # SHA1
+        re.fullmatch(r"[a-f0-9]{64}", s)      # SHA256
+    ) is not None
+
 def is_valid_url(url):
     try:
         parsed = urlparse(url if url.startswith("http") else f"http://{url}")
@@ -565,6 +583,67 @@ def get_ip_info(ip, vt_keys_exhausted=False):
 
     return ip_info
 
+def get_hash_info(hash_value, vt_keys_exhausted=False):
+    hash_info = {
+        "entry": hash_value,
+        "detections": 0,
+        "used_service": "",
+        "used_key": "",
+        "status_codes": {},
+        "service_sources": {
+            "detections": None
+        }
+    }
+
+    def call_virustotal():
+        for _ in range(len(VT_KEYS)):
+            vt_key = get_next_vt_key()  # Implement this rotating key fetcher as per your app
+            if not vt_key:
+                return None, None
+            used_services.add("VirusTotal")
+            headers = {"x-apikey": vt_key, "Accept": "application/json"}
+            try:
+                url = f"https://www.virustotal.com/api/v3/files/{hash_value}"
+                resp = requests.get(url, headers=headers, timeout=10)
+                hash_info["status_codes"]["VirusTotal"] = resp.status_code
+                vt_keys_used.add(vt_key)
+                if resp.status_code == 200:
+                    data = resp.json().get("data", {}).get("attributes", {})
+                    vt_keys_success.add(vt_key)
+                    vt_keys_used.add(vt_key)
+                    return data, vt_key
+                elif resp.status_code in (401, 429, 403):
+                    exhausted_vt_keys.add(vt_key)
+                    continue
+            except Exception:
+                hash_info["status_codes"]["VirusTotal"] = "Error"
+                exhausted_vt_keys.add(vt_key)
+                return None, vt_key
+        return None, None
+
+    vt_result, vt_key = call_virustotal()
+
+    if vt_result:
+        detections = vt_result.get("last_analysis_stats", {}).get("malicious", 0) or 0
+        hash_info["detections"] = detections
+        hash_info["service_sources"]["detections"] = "VirusTotal"
+        hash_info["used_service"] = "VirusTotal"
+        hash_info["used_key"] = vt_key
+
+    return hash_info
+
+def get_hash_tie_data(hash_value):
+    # Placeholder that returns all expected fields with "-" values
+    return {
+        "threat_actor": "-",
+        "campaign_name": "-",
+        "malware_families": "-",
+        "country_origin": "-",
+        "target_sector": "-",
+        "threat_category": "-",
+        "data": {},  # keep empty data object for compatibility
+    }
+
 def lookup_url(url):
     with ThreadPoolExecutor(max_workers=2) as executor:
         vt_future = executor.submit(fetch_virustotal_url_data, url)
@@ -633,18 +712,22 @@ def handle_ip_lookup():
     seen = set()
     valid_entries = []
     for entry in entries:
-        e = entry.strip()
-        if e in seen:
-            continue
-        seen.add(e)
-        if is_valid_public_ip(e):
-            valid_entries.append(e)
-        else:
-            normalized = is_valid_url(e)
-            if normalized:
+            e = entry.strip()
+            if e in seen:
+                continue
+            seen.add(e)
+            if is_valid_public_ip(e):
+                valid_entries.append(e)
+            elif normalized := is_valid_url(e):
                 valid_entries.append(normalized)
-        if len(valid_entries) >= 100:
-            break
+            elif is_valid_hash(e):
+                valid_entries.append(e)
+            else:
+                # Optionally log skipped invalid entries here
+                continue
+
+            if len(valid_entries) >= 100:
+                break
 
     types = set()
     for e in valid_entries:
@@ -673,6 +756,7 @@ def handle_ip_lookup():
 
     def build_summary(data, entry_type, vt_keys_exhausted=False):
         print(f"DEBUG [build_summary]: {data.get('entry')}, vt_keys_exhausted={vt_keys_exhausted}")
+
         def is_meaningful(value):
             if value is None:
                 return False
@@ -694,7 +778,7 @@ def handle_ip_lookup():
                 ioc_parts.append(f"{label}: {val}")
         ioc_summary = ""
         if ioc_parts:
-            ioc_summary = f" IOC Details: The {'URL' if entry_type == 'url' else 'IP'} is associated with " + ", ".join(ioc_parts) + "."
+            ioc_summary = f" IOC Details: The {'URL' if entry_type == 'url' else 'IP' if entry_type == 'ip' else 'Hash'} is associated with " + ", ".join(ioc_parts) + "."
 
         if entry_type == "url":
             categories = data.get("categories", [])
@@ -703,14 +787,19 @@ def handle_ip_lookup():
                 f"The URL: {data.get('entry')} has {data.get('detections', 0)} malicious detections."
                 + category_str + ioc_summary
             )
-        else:
+        elif entry_type == "hash":
+            summary = (
+                f"The Hash: {data.get('entry')} has {data.get('detections', 0)} malicious detections."
+                + ioc_summary
+            )
+        else:  # Default to IP
             abuse_score = data.get('abuseipdb_confidence_score')
             abuse_report_count = data.get('abuseipdb_report_count') or '0'
             abuseipdb_info = ""
             try:
                 if abuse_score is not None and float(abuse_score) > 10:
                     abuseipdb_info = (f"  AbuseIPDB shows confidence of Abuse Score: {abuse_score}% "
-                                      f"and it has been reported {abuse_report_count} times.")
+                                    f"and it has been reported {abuse_report_count} times.")
             except (ValueError, TypeError):
                 abuseipdb_info = ""
 
@@ -847,6 +936,26 @@ def handle_ip_lookup():
                     if vt_keys_exhausted:
                         vt_result["detections"] = None
                     return vt_result
+                elif is_valid_hash(e):
+                    with ThreadPoolExecutor(max_workers=3) as executor:
+                        vt_future = executor.submit(get_hash_info, e)   # You must implement get_hash_info similar to others
+                        tie_future = executor.submit(get_hash_tie_data, e)  # Similar for hash specific TIE data
+                        actor_info_future = executor.submit(get_actor_info_from_entry, e, "hash")
+                        vt_result = vt_future.result() or {}
+                        tie_result = tie_future.result()
+                        actor_details = actor_info_future.result()
+                    
+                    enrichment = extract_enrichment_fields(tie_result) if tie_result.get("data") else {k: None for k in THREAT_FIELDS}
+                    if actor_details:
+                        enrichment.update({k: actor_details.get(k, enrichment.get(k)) for k in THREAT_FIELDS})
+                    for key in THREAT_FIELDS:
+                        vt_result[key] = serialize_field(enrichment.get(key))
+                    vt_result["entry_type"] = "hash"
+                    vt_result.setdefault("entry", e)
+                    vt_result["summary"] = build_summary(vt_result, "hash", vt_keys_exhausted=vt_keys_exhausted)
+                    if vt_keys_exhausted:
+                        vt_result["detections"] = None
+                    return vt_result
                 else:
                     return None
         finally:
@@ -923,15 +1032,20 @@ def handle_ip_lookup():
     has_url = any(r.get("entry_type") == "url" for r in results)
     no_data_ips = []
     for r in results:
-        is_url = (r.get("entry_type") == "url")
+        entry_type = r.get("entry_type")
         det = r.get("detections")
         isp_val, ctr_val = r.get("isp", ""), r.get("country", "")
-        if is_url:
+        if entry_type == "url":
             if (det is None or det == 0) and not isp_val and not ctr_val:
                 no_data_ips.append(r.get("ip") or r.get("entry"))
-        else:
+        elif entry_type == "hash":
+            # For hashes, consider them no-data if detections missing or 0
+            if (det is None or det == 0):
+                no_data_ips.append(r.get("entry"))
+        else:  # IP and fallback
             if not isp_val and not ctr_val:
                 no_data_ips.append(r.get("ip") or r.get("entry"))
+
 
     summary_lines = []
     for i, r in enumerate(results):
