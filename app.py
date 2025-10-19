@@ -88,7 +88,7 @@ atexit.register(lambda: executor_main.shutdown(wait=True))
 
 
 from concurrent.futures import ThreadPoolExecutor
-def queryabuseipdburl(url):
+def entryabuseipdburl(url):
     # AbuseIPDB doesn't support URL lookups
     # Return empty dict to keep interface consistent
     return {}
@@ -104,11 +104,11 @@ def upsert_lookup_data(result):
 
         # Use correct source field
         if entry_type == "url":
-            entry = (result.get("query") or result.get("ip") or "").strip().lower()
+            entry = (result.get("entry") or result.get("entry") or "").strip().lower()
             if not entry:
                 return  # don't insert when we have no valid URL/domain
         else:
-            entry = result.get("ip", "").strip()
+            entry = result.get("entry", "").strip()
             if not entry:
                 return  # don't insert when we have no valid IP
 
@@ -312,9 +312,9 @@ def fetch_virustotal_url_data(url):
 
 
 # -------------------------------
-# VirusTotal IP Query with Key Rotation
+# VirusTotal IP entry with Key Rotation
 # -------------------------------
-def query_virustotal(ip):
+def entry_virustotal(ip):
     tried = set()
     while True:
         key = get_next_vt_key()
@@ -327,7 +327,7 @@ def query_virustotal(ip):
         vt_keys_used.add(key)
         try:
             resp = requests.get(f"https://www.virustotal.com/api/v3/ip_addresses/{ip}", headers=headers, timeout=10)
-            if resp.status_code in (401, 403):
+            if resp.status_code in (401,429, 403):
                 exhausted_vt_keys.add(key)
                 continue
             if resp.status_code != 200:
@@ -346,9 +346,9 @@ def query_virustotal(ip):
 
 
 # -------------------------------
-# AbuseIPDB Query with Rate-Limit Handling
+# AbuseIPDB entry with Rate-Limit Handling
 # -------------------------------
-def query_abuseipdb(ip):
+def entry_abuseipdb(ip):
     tried = set()
     while True:
         key = get_next_abuseipdb_key()
@@ -427,7 +427,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 def get_ip_info(ip, vt_keys_exhausted=False):
     ip_info = {
-        "ip": ip,
+        "entry": ip,
         "asn": "",
         "isp": "",
         "country": "",
@@ -568,7 +568,7 @@ def get_ip_info(ip, vt_keys_exhausted=False):
 def lookup_url(url):
     with ThreadPoolExecutor(max_workers=2) as executor:
         vt_future = executor.submit(fetch_virustotal_url_data, url)
-        abuseipdb_future = executor.submit(queryabuseipdburl, url)
+        abuseipdb_future = executor.submit(entryabuseipdburl, url)
 
         vt_data = vt_future.result() or {}
         abuseipdb_data = abuseipdb_future.result() or {}
@@ -586,7 +586,7 @@ def lookup_url(url):
 
     return {
         "type": "url",
-        "query": url,
+        "entry": url,
         "hostname": urlparse(url if url.startswith("http") else f"http://{url}").hostname,
         "ip": url,
         "asn": "",
@@ -672,7 +672,7 @@ def handle_ip_lookup():
         return str(value)
 
     def build_summary(data, entry_type, vt_keys_exhausted=False):
-        print(f"DEBUG [build_summary]: IP={data.get('ip')}, vt_keys_exhausted={vt_keys_exhausted}")
+        print(f"DEBUG [build_summary]: {data.get('entry')}, vt_keys_exhausted={vt_keys_exhausted}")
         def is_meaningful(value):
             if value is None:
                 return False
@@ -700,7 +700,7 @@ def handle_ip_lookup():
             categories = data.get("categories", [])
             category_str = f" Categories: {', '.join(categories)}." if categories else ""
             summary = (
-                f"The URL: {data.get('query')} has {data.get('detections', 0)} malicious detections."
+                f"The URL: {data.get('entry')} has {data.get('detections', 0)} malicious detections."
                 + category_str + ioc_summary
             )
         else:
@@ -719,7 +719,7 @@ def handle_ip_lookup():
             ) if not vt_keys_exhausted else ""
 
             summary = (
-                f"The IP: {data.get('query')} belongs to ISP: {data.get('isp') or 'N/A'}, "
+                f"The IP: {data.get('entry')} belongs to ISP: {data.get('isp') or 'N/A'}, "
                 f"from Country: {data.get('country') or 'N/A'}"
                 + detection_info
                 + abuseipdb_info
@@ -735,8 +735,8 @@ def handle_ip_lookup():
             if record:
                 used_services.add("Database")
                 data = {
-                    "ip": "record.associated_ip" if record.entry_type == "url" else record.entry,
-                    "query": record.entry,
+                    "entry": record.entry,
+                    "entry_type": record.entry_type,  # Add this line here
                     "isp": record.isp or "",
                     "asn": record.asn or "",
                     "country": record.country or "",
@@ -750,14 +750,14 @@ def handle_ip_lookup():
                     "target_sector": record.target_sector or "-",
                     "threat_category": record.threat_category or "-",
                 }
-                print(f"DEBUG [resolve_entry]: IP={e}, vt_keys_exhausted={vt_keys_exhausted}")
+                print(f"DEBUG [resolve_entry]: {e}, vt_keys_exhausted={vt_keys_exhausted}")
                 data["summary"] = build_summary(data, record.entry_type, vt_keys_exhausted=False)
-                if data.get("entry_type") == "url" and data.get("query"):
-                    data["query"] = data["query"].lower()
-                if not data.get("ip"):
-                    data["ip"] = e
-                if not data.get("query"):
-                    data["query"] = e
+                if data.get("entry_type") == "url" and data.get("entry"):
+                    data["entry"] = data["entry"].lower()
+                if not data.get("entry"):
+                    data["entry"] = e
+                if not data.get("entry"):
+                    data["entry"] = e
                 return data
             else:
                 if is_valid_public_ip(e):
@@ -796,9 +796,9 @@ def handle_ip_lookup():
                     vt_result["entry_type"] = "ip"
                     if not vt_result.get("ip"):
                         vt_result["ip"] = e
-                    if not vt_result.get("query"):
-                        vt_result["query"] = e
-                    print(f"DEBUG [resolve_entry]: IP={e}, vt_keys_exhausted={vt_keys_exhausted}")
+                    if not vt_result.get("entry"):
+                        vt_result["entry"] = e
+                    print(f"DEBUG [resolve_entry]: {e}, vt_keys_exhausted={vt_keys_exhausted}")
                     vt_result["summary"] = build_summary(vt_result, "ip", vt_keys_exhausted=vt_keys_exhausted)
                     if vt_keys_exhausted:
                         vt_result["detections"] = None
@@ -838,12 +838,12 @@ def handle_ip_lookup():
                         vt_result[key] = serialize_field(enrichment_value)
                     vt_result["entry_type"] = "url"
                     vt_result["summary"] = build_summary(vt_result, "url", vt_keys_exhausted=vt_keys_exhausted)
-                    if vt_result.get("query"):
-                        vt_result["query"] = vt_result["query"].lower()
+                    if vt_result.get("entry"):
+                        vt_result["entry"] = vt_result["entry"].lower()
                     if not vt_result.get("ip"):
                         vt_result["ip"] = e
-                    if not vt_result.get("query"):
-                        vt_result["query"] = e
+                    if not vt_result.get("entry"):
+                        vt_result["entry"] = e
                     if vt_keys_exhausted:
                         vt_result["detections"] = None
                     return vt_result
@@ -870,7 +870,7 @@ def handle_ip_lookup():
 
     raw_table = []
     for r in results:
-        ip_or_url = r.get("query") or r.get("ip") or "N/A"
+        ip_or_url = r.get("entry") or r.get("ip") or "N/A"
         isp = r.get("isp", "")
         country = r.get("country", "")
         detections = r.get("detections")
@@ -909,7 +909,7 @@ def handle_ip_lookup():
     for r in results:
         entry_type = r.get("entry_type", r.get("type", "IP"))
         if entry_type.lower() == "url":
-            entry = r.get("query") or r.get("ip")
+            entry = r.get("entry") or r.get("ip")
         else:
             entry = r.get("ip")
 
@@ -928,10 +928,10 @@ def handle_ip_lookup():
         isp_val, ctr_val = r.get("isp", ""), r.get("country", "")
         if is_url:
             if (det is None or det == 0) and not isp_val and not ctr_val:
-                no_data_ips.append(r.get("ip") or r.get("query"))
+                no_data_ips.append(r.get("ip") or r.get("entry"))
         else:
             if not isp_val and not ctr_val:
-                no_data_ips.append(r.get("ip") or r.get("query"))
+                no_data_ips.append(r.get("ip") or r.get("entry"))
 
     summary_lines = []
     for i, r in enumerate(results):
@@ -997,9 +997,10 @@ def handle_ip_lookup():
 
     safe_print("\n📋 Per Entry Summary:\n")
     for r in results:
-        ip_entry =r.get("query")
-        if not ip_entry:
+        entry_value = r.get("entry") or r.get("entry")
+        if not entry_value:
             continue
+
 
         service_sources = r.get("service_sources", {})
         main_parts = [
@@ -1015,7 +1016,7 @@ def handle_ip_lookup():
 
         safe_print()
         safe_print(
-            f"[{ip_entry}]  "
+            f"[{entry_value}]  "
             + ";   ".join(main_parts)
             + "\n|  StatusCodes: " + ", ".join(status_parts)
         )
@@ -1037,11 +1038,11 @@ def handle_ip_lookup():
         "no_data_ips": no_data_ips,
         "services_used": sorted(used_services),
         "elapsed": elapsed,
-        "per_ip_vt_keys": {r["ip"]: {
+        "per_ip_vt_keys": {r["entry"]: {
             "used_service": r.get("used_service"),
             "used_key": r.get("used_key"),
             "status_codes": r.get("status_codes", {})
-            } for r in results if "ip" in r},
+            } for r in results if "entry" in r},
         "has_url": has_url,
         "column_label": column_label,
         "exhausted_messages": exhausted_messages
