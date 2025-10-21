@@ -110,38 +110,42 @@ def upsert_lookup_data(result):
     """
     session = SessionLocal()
     try:
-        entry_type = result.get("entry_type", result.get("type", "IP")).lower()
+        entry_type = result.get("entry_type", result.get("type", "IP"))
+        if entry_type:
+            entry_type = entry_type.lower()
+        else:
+            entry_type = "ip"  # Default fallback
 
         # Use correct source field
         if entry_type == "url":
-            entry = (result.get("entry") or result.get("entry") or "").strip().lower()
+            entry = (result.get("entry") or "").strip().lower()
             if not entry:
                 return  # don't insert when we have no valid URL/domain
         else:
-            entry = result.get("entry", "").strip()
+            entry = (result.get("entry") or "").strip()
             if not entry:
-                return  # don't insert when we have no valid IP
+                return  # don't insert when we have no valid IP/hash
 
-        # these fields come from get_ip_info or lookup_url
-        isp             = result.get("isp", "")
-        asn             = result.get("asn", "")
-        country         = result.get("country", "")
+        # Extract standard enrichment fields
+        isp = result.get("isp", "")
+        asn = result.get("asn", "")
+        country = result.get("country", "")
         detection_count = result.get("detections", 0)
-        
+
         # New enrichment fields
-        threat_actor     = result.get("threat_actor")
-        campaign_name    = result.get("campaign_name")
+        threat_actor = result.get("threat_actor")
+        campaign_name = result.get("campaign_name")
         malware_families = result.get("malware_families")
 
-        # New enrichment fields from second api call
         country_origin = result.get("country_origin")
         target_sector = result.get("target_sector")
         threat_category = result.get("threat_category")
 
-        # Newly added AbuseIPDB fields
         abuseipdb_confidence_score = result.get("abuseipdb_confidence_score")
         abuseipdb_report_count = result.get("abuseipdb_report_count")
-        
+
+        details_json = result.get("details_json")  # New JSONB enrichment data container
+
         existing = session.get(LookupData, entry)
         if not existing:
             new = LookupData(
@@ -158,13 +162,14 @@ def upsert_lookup_data(result):
                 malware_families=malware_families,
                 country_origin=country_origin,
                 target_sector=target_sector,
-                threat_category=threat_category
+                threat_category=threat_category,
+                details_json=details_json  # Store JSONB data here
             )
             session.add(new)
             session.commit()
     except Exception:
         session.rollback()
-        raise  # Optionally raise to track errors
+        raise
     finally:
         session.close()
 
@@ -583,6 +588,57 @@ def get_ip_info(ip, vt_keys_exhausted=False):
 
     return ip_info
 
+def parse_hash_enrichment(source_data):
+    def safe_get(d, *keys, default=None):
+        for key in keys:
+            d = d.get(key, {})
+            if not isinstance(d, dict):
+                return d if d else default
+        return default
+
+    # Extract malicious detections
+    print(f"DEBUG keys in source_data: {list(source_data.keys())}")
+    detections = safe_get(source_data, "last_analysis_stats", "malicious", default=0)
+
+    # Extract popular threat label from "popularthreatname" or "suggestedthreatlabel"
+  # Compose popular_threat_label from suggested_threat_label and popular_threat_category
+    pop_threat_classification = source_data.get("popular_threat_classification", {})
+
+    suggested_label = pop_threat_classification.get("suggested_threat_label")
+    popular_categories = pop_threat_classification.get("popular_threat_category", [])
+
+    categories_str = ", ".join([cat.get("value", "") for cat in popular_categories if cat.get("value")])
+
+    if suggested_label and categories_str:
+        popular_threat_label = f"{suggested_label} ({categories_str})"
+    elif suggested_label:
+        popular_threat_label = suggested_label
+    elif categories_str:
+        popular_threat_label = categories_str
+    else:
+        popular_threat_label = None
+
+        
+    # Other important fields
+    size = source_data.get("size")
+    file_name = source_data.get("meaningful_name") or (source_data.get("names")[0] if source_data.get("names") else None)
+    malicious_engines = [k for k, v in source_data.get("last_analysis_results", {}).items() if v.get("category") == "malicious"]
+    first_seen = source_data.get("first_submission_date")
+    last_seen = source_data.get("last_submission_date")
+    reputation = source_data.get("reputation")
+
+    return {
+        "detections": detections,
+        "popular_threat_label": popular_threat_label,
+        "size": size,
+        "file_name": file_name,
+        "malicious_engines": malicious_engines,
+        "first_seen": first_seen,
+        "last_seen": last_seen,
+        "reputation": reputation
+    }
+
+
 def get_hash_info(hash_value, vt_keys_exhausted=False):
     hash_info = {
         "entry": hash_value,
@@ -590,14 +646,13 @@ def get_hash_info(hash_value, vt_keys_exhausted=False):
         "used_service": "",
         "used_key": "",
         "status_codes": {},
-        "service_sources": {
-            "detections": None
-        }
+        "service_sources": {"detections": None},
+        "details_json": None
     }
 
     def call_virustotal():
         for _ in range(len(VT_KEYS)):
-            vt_key = get_next_vt_key()  # Implement this rotating key fetcher as per your app
+            vt_key = get_next_vt_key()
             if not vt_key:
                 return None, None
             used_services.add("VirusTotal")
@@ -610,7 +665,6 @@ def get_hash_info(hash_value, vt_keys_exhausted=False):
                 if resp.status_code == 200:
                     data = resp.json().get("data", {}).get("attributes", {})
                     vt_keys_success.add(vt_key)
-                    vt_keys_used.add(vt_key)
                     return data, vt_key
                 elif resp.status_code in (401, 429, 403):
                     exhausted_vt_keys.add(vt_key)
@@ -622,15 +676,25 @@ def get_hash_info(hash_value, vt_keys_exhausted=False):
         return None, None
 
     vt_result, vt_key = call_virustotal()
-
     if vt_result:
-        detections = vt_result.get("last_analysis_stats", {}).get("malicious", 0) or 0
-        hash_info["detections"] = detections
-        hash_info["service_sources"]["detections"] = "VirusTotal"
-        hash_info["used_service"] = "VirusTotal"
-        hash_info["used_key"] = vt_key
-
+        parsed = parse_hash_enrichment(vt_result)
+        print(f"DEBUG: Parsed popular_threat_label = {parsed.get('popular_threat_label')}")
+        hash_info.update({
+            "detections": parsed["detections"],
+            "service_sources": {"detections": "VirusTotal"},
+            "used_service": "VirusTotal",
+            "used_key": vt_key,
+            "details_json": vt_result,
+            "popular_threat_label": parsed.get("popular_threat_label"),
+            "size": parsed.get("size"),
+            "file_name": parsed.get("file_name"),
+            "malicious_engines": parsed.get("malicious_engines"),
+            "first_seen": parsed.get("first_seen"),
+            "last_seen": parsed.get("last_seen"),
+            "reputation": parsed.get("reputation"),
+        })
     return hash_info
+
 
 def get_hash_tie_data(hash_value):
     # Placeholder that returns all expected fields with "-" values
@@ -733,14 +797,30 @@ def handle_ip_lookup():
     for e in valid_entries:
         if is_valid_public_ip(e):
             types.add("IP")
-        else:
+        elif is_valid_url(e):
             types.add("URL")
+        elif is_valid_hash(e):
+            types.add("HASH")
+        else:
+            # Optionally handle invalid entries if needed
+            pass
+
     if types == {"IP"}:
         column_label = "IP"
     elif types == {"URL"}:
         column_label = "URL"
-    else:
+    elif types == {"HASH"}:
+        column_label = "HASH"
+    elif types == {"IP", "URL"}:
         column_label = "IP/URL"
+    elif types == {"IP", "HASH"}:
+        column_label = "IP/HASH"
+    elif types == {"URL", "HASH"}:
+        column_label = "URL/HASH"
+    else:
+        # Mixed of all three or other combinations
+        column_label = "IP/URL/HASH"
+
 
     from tie_service import get_ip_tie_data, get_domain_tie_data, extract_enrichment_fields, get_actor_info_from_entry
     from concurrent.futures import ThreadPoolExecutor
@@ -763,6 +843,13 @@ def handle_ip_lookup():
             if isinstance(value, str):
                 return value.strip().lower() not in ("", "n/a", "-")
             return True
+
+        # Merge details_json fields into main dict if present
+        details = data.get("details_json") or {}
+        if details:
+            for key in ["popular_threat_label", "size", "malicious_engines", "file_name", "first_seen", "last_seen", "reputation"]:
+                if key not in data or not is_meaningful(data.get(key)):
+                    data[key] = details.get(key)
 
         ioc_parts = []
         for field, label in [
@@ -788,9 +875,30 @@ def handle_ip_lookup():
                 + category_str + ioc_summary
             )
         elif entry_type == "hash":
+            threat_label_str = f" with threat labels: '{data.get('popular_threat_label')}'." if is_meaningful(data.get('popular_threat_label')) else ""
+            size_str = f" The file size is {data.get('size', 'N/A')} bytes" if data.get('size') else ""
+            file_name_str = f" with commonly known file name as '{data.get('file_name')}'." if is_meaningful(data.get('file_name')) else ""
+
+            # malicious_engines = data.get('malicious_engines') or []
+            # if isinstance(malicious_engines, list) and malicious_engines:
+            #     engines_str = " Detected as malicious by antivirus engines: " + ", ".join(malicious_engines) + "."
+            # else:
+            #     engines_str = ""
+
+            # first_seen_str = ""
+            # if data.get("first_seen"):
+            #     first_seen_str = f" First seen: {datetime.fromtimestamp(data['first_seen']).strftime('%Y-%m-%d')}."
+            # last_seen_str = ""
+            # if data.get("last_seen"):
+            #     last_seen_str = f" Last seen: {datetime.fromtimestamp(data['last_seen']).strftime('%Y-%m-%d')}."
+            # reputation_str = ""
+            # if is_meaningful(data.get("reputation")):
+            #     reputation_str = f" Reputation score: {data.get('reputation')}."
+
             summary = (
-                f"The Hash: {data.get('entry')} has {data.get('detections', 0)} malicious detections."
-                + ioc_summary
+                f"The Hash: {data.get('entry')} has {data.get('detections', 0)} malicious detections"
+                + threat_label_str + size_str + file_name_str + ioc_summary#+ engines_str 
+                #+ first_seen_str + last_seen_str + reputation_str
             )
         else:  # Default to IP
             abuse_score = data.get('abuseipdb_confidence_score')
@@ -798,7 +906,7 @@ def handle_ip_lookup():
             abuseipdb_info = ""
             try:
                 if abuse_score is not None and float(abuse_score) > 10:
-                    abuseipdb_info = (f"  AbuseIPDB shows confidence of Abuse Score: {abuse_score}% "
+                    abuseipdb_info = (f" AbuseIPDB shows confidence of Abuse Score: {abuse_score}% "
                                     f"and it has been reported {abuse_report_count} times.")
             except (ValueError, TypeError):
                 abuseipdb_info = ""
@@ -818,6 +926,7 @@ def handle_ip_lookup():
 
     def resolve_entry(e, vt_keys_exhausted, client_name=client_name, timestamp_ist=None):
         session = SessionLocal()
+        data = {}
         try:
             record = session.query(LookupData).filter_by(entry=e).first()
             now = timestamp_ist or datetime.now()
@@ -825,7 +934,7 @@ def handle_ip_lookup():
                 used_services.add("Database")
                 data = {
                     "entry": record.entry,
-                    "entry_type": record.entry_type,  # Add this line here
+                    "entry_type": record.entry_type or "unknown",
                     "isp": record.isp or "",
                     "asn": record.asn or "",
                     "country": record.country or "",
@@ -838,16 +947,8 @@ def handle_ip_lookup():
                     "country_origin": record.country_origin or "-",
                     "target_sector": record.target_sector or "-",
                     "threat_category": record.threat_category or "-",
+                    "details_json": record.details_json or None,
                 }
-                print(f"DEBUG [resolve_entry]: {e}, vt_keys_exhausted={vt_keys_exhausted}")
-                data["summary"] = build_summary(data, record.entry_type, vt_keys_exhausted=False)
-                if data.get("entry_type") == "url" and data.get("entry"):
-                    data["entry"] = data["entry"].lower()
-                if not data.get("entry"):
-                    data["entry"] = e
-                if not data.get("entry"):
-                    data["entry"] = e
-                return data
             else:
                 if is_valid_public_ip(e):
                     with ThreadPoolExecutor(max_workers=3) as executor:
@@ -862,8 +963,8 @@ def handle_ip_lookup():
                         used_services.add("ThreatIntel")
                     else:
                         enrichment = {k: None for k in
-                                      ("threat_actor", "campaign_name", "malware_families", "country_origin",
-                                       "target_sector", "threat_category")}
+                                    ("threat_actor", "campaign_name", "malware_families", "country_origin",
+                                    "target_sector", "threat_category")}
                     if actor_details:
                         enrichment.update({
                             "country_origin": actor_details.get("country_origin", enrichment.get("country_origin")),
@@ -887,11 +988,7 @@ def handle_ip_lookup():
                         vt_result["ip"] = e
                     if not vt_result.get("entry"):
                         vt_result["entry"] = e
-                    print(f"DEBUG [resolve_entry]: {e}, vt_keys_exhausted={vt_keys_exhausted}")
-                    vt_result["summary"] = build_summary(vt_result, "ip", vt_keys_exhausted=vt_keys_exhausted)
-                    if vt_keys_exhausted:
-                        vt_result["detections"] = None
-                    return vt_result
+                    data = vt_result
                 elif is_valid_url(e):
                     with ThreadPoolExecutor(max_workers=3) as executor:
                         vt_future = executor.submit(lookup_url, e)
@@ -905,8 +1002,8 @@ def handle_ip_lookup():
                         enrichment = extract_enrichment_fields(tie_result)
                     else:
                         enrichment = {k: None for k in
-                                      ("threat_actor", "campaign_name", "malware_families", "country_origin",
-                                       "target_sector", "threat_category")}
+                                    ("threat_actor", "campaign_name", "malware_families", "country_origin",
+                                    "target_sector", "threat_category")}
                     if actor_details:
                         enrichment.update({
                             "country_origin": actor_details.get("country_origin", enrichment.get("country_origin")),
@@ -935,16 +1032,15 @@ def handle_ip_lookup():
                         vt_result["entry"] = e
                     if vt_keys_exhausted:
                         vt_result["detections"] = None
-                    return vt_result
+                    data = vt_result
                 elif is_valid_hash(e):
                     with ThreadPoolExecutor(max_workers=3) as executor:
-                        vt_future = executor.submit(get_hash_info, e)   # You must implement get_hash_info similar to others
-                        tie_future = executor.submit(get_hash_tie_data, e)  # Similar for hash specific TIE data
+                        vt_future = executor.submit(get_hash_info, e)
+                        tie_future = executor.submit(get_hash_tie_data, e)
                         actor_info_future = executor.submit(get_actor_info_from_entry, e, "hash")
                         vt_result = vt_future.result() or {}
                         tie_result = tie_future.result()
                         actor_details = actor_info_future.result()
-                    
                     enrichment = extract_enrichment_fields(tie_result) if tie_result.get("data") else {k: None for k in THREAT_FIELDS}
                     if actor_details:
                         enrichment.update({k: actor_details.get(k, enrichment.get(k)) for k in THREAT_FIELDS})
@@ -955,11 +1051,24 @@ def handle_ip_lookup():
                     vt_result["summary"] = build_summary(vt_result, "hash", vt_keys_exhausted=vt_keys_exhausted)
                     if vt_keys_exhausted:
                         vt_result["detections"] = None
-                    return vt_result
+                    data = vt_result
                 else:
-                    return None
+                    data = {}
         finally:
             session.close()
+
+        if data.get("entry_type") == "hash" and data.get("details_json"):
+            parsed = parse_hash_enrichment(data["details_json"])
+            data["detections"] = parsed.get("detections", data.get("detections", 0))
+            data.update(parsed)
+
+        data["summary"] = build_summary(data, data.get("entry_type", "unknown"), vt_keys_exhausted=vt_keys_exhausted)
+        if data.get("entry_type") == "url" and data.get("entry"):
+            data["entry"] = data["entry"].lower()
+        if not data.get("entry"):
+            data["entry"] = e
+
+        return data
 
     with ThreadPoolExecutor(max_workers=10) as executor_main:
         # First run with vt_keys_exhausted = False to perform all lookups and allow VT keys exhaustion updates
@@ -1016,35 +1125,52 @@ def handle_ip_lookup():
             upsert_lookup_data(r)
 
     for r in results:
-        entry_type = r.get("entry_type", r.get("type", "IP"))
-        if entry_type.lower() == "url":
+        entry_type = r.get("entry_type") or r.get("type")
+        if not entry_type:
+            entry_type = "unknown"
+        entry_type = entry_type.lower()
+        
+        if entry_type == "url":
             entry = r.get("entry") or r.get("ip")
         else:
-            entry = r.get("ip")
-
+            entry = r.get("entry") or r.get("ip")  # Use r.get("entry") as primary for hash and IP
+        
         if not entry:
             safe_print(f"Skipping insert_search_event and upsert_search_log for missing entry in result: {r}")
             continue
 
+        # Only skip entirely unknown types if you want
+        if entry_type not in {"ip", "url", "hash"}:
+            safe_print(f"Skipping unrecognized entry_type '{entry_type}' for entry: {entry}")
+            continue
+
         insert_search_event(entry, client_name, timestamp_ist, entry_type=entry_type)
         upsert_search_log(entry, client_name, timestamp_ist, entry_type=entry_type)
+
 
     has_url = any(r.get("entry_type") == "url" for r in results)
     no_data_ips = []
     for r in results:
         entry_type = r.get("entry_type")
         det = r.get("detections")
+        
+        # For IPs, get ISP and country to decide no-data
         isp_val, ctr_val = r.get("isp", ""), r.get("country", "")
+        print(f" {r.get('entry_type')}, detections={det}")
         if entry_type == "url":
-            if (det is None or det == 0) and not isp_val and not ctr_val:
+            # For URL: no detailed info other than detection, so only check if detection is missing or None
+            if det is None:
                 no_data_ips.append(r.get("ip") or r.get("entry"))
         elif entry_type == "hash":
-            # For hashes, consider them no-data if detections missing or 0
-            if (det is None or det == 0):
+            # For hash: detection missing or None means no data
+            
+            if det is None:
                 no_data_ips.append(r.get("entry"))
-        else:  # IP and fallback
+        else:
+            # For IP: no other detail fields, so check if isp and country missing to capture no data condition
             if not isp_val and not ctr_val:
                 no_data_ips.append(r.get("ip") or r.get("entry"))
+
 
 
     summary_lines = []

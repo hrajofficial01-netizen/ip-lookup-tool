@@ -1,8 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import quote
-
 from api_service import api_request
-
 
 BASE_URL = "https://api.threatintel.io/v1"
 
@@ -44,18 +42,27 @@ def run_parallel_tie_calls(entry, entry_type):
     return None
 
 
-def extract_enrichment_fields(tie_result):
+def extract_enrichment_fields(tie_result, entry_type):
     """
     Extract basic enrichment fields from the first API call response.
+    For 'hash' entry_type, return empty/default values as fields aren't available.
     """
+    if entry_type == "hash":
+        # Return explicit empty/default values for hash IOC enrichment
+        return {
+            "threat_actor": "-",
+            "campaign_name": "-",
+            "malware_families": "-"
+        }
+
     if not tie_result:
         return {}
 
     data = tie_result.get("data") or {}
     return {
-        "threat_actor": data.get("threat_actor"),
-        "campaign_name": data.get("campaign_name"),
-        "malware_families": data.get("malware_families"),
+        "threat_actor": data.get("threat_actor", "-"),
+        "campaign_name": data.get("campaign_name", "-"),
+        "malware_families": data.get("malware_families", "-"),
     }
 
 
@@ -85,26 +92,35 @@ def parse_actor_details_response(actor_details_response):
 
     data = actor_details_response.get("data") or {}
     return {
-        "actor_name": data.get("name"),
-        "country_origin": data.get("country_origin"),
-        "target_sector": data.get("sector_targets"),
-        "threat_category": data.get("threat_category"),
+        "actor_name": data.get("name", "-"),
+        "country_origin": data.get("country_origin", "-"),
+        "target_sector": data.get("sector_targets", "-"),
+        "threat_category": data.get("threat_category", "-"),
     }
 
 
 def get_actor_info_from_entry(entry, entry_type):
     """
-    Main function to get threat actor info for an entry (IP or URL).
+    Main function to get threat actor info for an entry (IP, URL, or HASH).
     """
+    if entry_type == "hash":
+        # Directly return default values for hashes, no API enrichment available
+        return {
+            "threat_actor": "-",
+            "country_origin": "-",
+            "target_sector": "-",
+            "threat_category": "-"
+        }
+
     main_data = run_parallel_tie_calls(entry, entry_type)
-    enrichment = extract_enrichment_fields(main_data)
+    enrichment = extract_enrichment_fields(main_data, entry_type)
 
     if not enrichment:
         return None
 
     actor_name_or_id = enrichment.get("threat_actor")
 
-    if actor_name_or_id:
+    if actor_name_or_id and actor_name_or_id != "-":
         # If actor is a list, take first element
         if isinstance(actor_name_or_id, list):
             actor_name_or_id = actor_name_or_id[0]
@@ -123,6 +139,7 @@ def get_actor_info_from_entry(entry, entry_type):
 if __name__ == "__main__":
     test_ip = "8.8.8.8"
     test_url = "report-telegram.me"
+    test_hash = "d41d8cd98f00b204e9800998ecf8427e"  # Example MD5
 
     print("Testing IP entry:")
     ip_actor_info = get_actor_info_from_entry(test_ip, "ip")
@@ -131,3 +148,7 @@ if __name__ == "__main__":
     print("\nTesting URL entry:")
     url_actor_info = get_actor_info_from_entry(test_url, "url")
     print(url_actor_info if url_actor_info else "No actor info found.")
+
+    print("\nTesting Hash entry:")
+    hash_actor_info = get_actor_info_from_entry(test_hash, "hash")
+    print(hash_actor_info if hash_actor_info else "No actor info found.")

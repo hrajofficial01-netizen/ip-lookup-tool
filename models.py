@@ -17,7 +17,7 @@ class LookupData(Base):
     # New columns added here:
     abuseipdb_confidence_score = Column(Integer, nullable=True)
     abuseipdb_report_count = Column(Integer, nullable=True)
-
+    details_json = Column(JSONB, nullable=True)
     threat_actor = Column(String, nullable=True)  # or String if JSON not supported
     country_origin = Column(JSONB, nullable=True)
     threat_category = Column(JSONB, nullable=True)
