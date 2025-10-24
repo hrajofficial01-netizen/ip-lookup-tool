@@ -162,10 +162,14 @@ async function fetchIPData() {
     tableHead.innerHTML = "";
     const headerRow = document.createElement("tr");
 
-    let headerTitles = ["IP/URL/HASH", "ISP", "Country", "Detections",
-      "AbuseIPDB Confidence Score(%)","AbuseIPDB Report Count",
-      "Threat Actor", "Country Of Origin", "Target Sector",
-      "Threat Category", "Campaign Name", "Malware Families"];
+    let headerTitles = [
+    "IP/URL/HASH", "ISP", "Country", "Detections",
+    "APIVoid Risk Score", "APIVoid Blacklist Detections",
+    "AbuseIPDB Confidence Score(%)", "AbuseIPDB Report Count",
+    "Threat Actor", "Country Of Origin", "Target Sector",
+    "Threat Category", "Campaign Name", "Malware Families"
+  ];
+
 
     for (const title of headerTitles) {
       const th = document.createElement("th");
@@ -182,6 +186,8 @@ async function fetchIPData() {
         isp,
         country,
         detections,
+        apivoidRiskScore,
+        apivoidBlacklistDetections,
         abuseipdbConfidenceRaw,
         abuseipdbReportCountRaw,
         threatActorRaw,
@@ -191,6 +197,7 @@ async function fetchIPData() {
         campaignNameRaw,
         malwareFamiliesRaw,
       ] = row;
+
 
       function formatField(field) {
         if (!field) return "-";
@@ -207,10 +214,15 @@ async function fetchIPData() {
       const abuseipdbConfidence = formatField(abuseipdbConfidenceRaw);
       const abuseipdbReportCount = formatField(abuseipdbReportCountRaw);
 
-      let cells = [inputValue, isp, country, detections,
-        abuseipdbConfidence, abuseipdbReportCount,
-        threatActor, countryOrigin, targetSector,
-        threatCategory, campaignName, malwareFamilies];
+      let cells = [
+        inputValue, isp, country, detections,
+        apivoidRiskScore || "-", apivoidBlacklistDetections || "-",
+        formatField(abuseipdbConfidenceRaw), formatField(abuseipdbReportCountRaw),
+        formatField(threatActorRaw), formatField(countryOriginRaw),
+        formatField(targetSectorRaw), formatField(threatCategoryRaw),
+        formatField(campaignNameRaw), formatField(malwareFamiliesRaw)
+      ];
+
 
       const tr = document.createElement("tr");
       for (const cell of cells) {

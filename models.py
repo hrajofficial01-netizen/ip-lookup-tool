@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, DateTime, PrimaryKeyConstraint
+from sqlalchemy import Column, String, Integer, DateTime, PrimaryKeyConstraint, Float
 from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import JSONB  # Import JSONB type
 from db import Base
@@ -13,7 +13,7 @@ class LookupData(Base):
     asn = Column(String, nullable=True)
     country = Column(String, nullable=True)
     detection_count = Column(Integer, nullable=False, default=0)
-
+    
     # New columns added here:
     abuseipdb_confidence_score = Column(Integer, nullable=True)
     abuseipdb_report_count = Column(Integer, nullable=True)
@@ -26,7 +26,8 @@ class LookupData(Base):
     malware_families = Column(String, nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-
+    apivoid_risk_score = Column(Float, nullable=True)
+    apivoid_blacklist_detections = Column(Integer, nullable=True)
 
 class SearchLog(Base):
     __tablename__ = "search_log"

@@ -60,7 +60,7 @@ VT_KEYS = [key.strip() for key in os.getenv("VT_API_KEYS", "").split(",") if key
 ABUSEIPDB_KEYS = [key.strip() for key in os.getenv("ABUSEIPDB_API_KEYS", "").split(",") if key.strip()]
 DBIP_KEY = os.getenv("DBIP_API_KEY")
 IPINFO_KEY = os.getenv("IPINFO_API_KEY")
-APIVOID_KEY = os.getenv("APIVOID_API_KEY")
+APIVOID_KEYS = [key.strip() for key in os.getenv("APIVOID_API_KEYS", "").split(",") if key.strip()]
 
 # Globals
 vt_key_index = 0
@@ -74,6 +74,13 @@ abuseipdb_key_lock = threading.Lock()
 exhausted_abuseipdb_keys = set()
 abuseipdb_keys_used = set()
 abuseipdb_keys_success = set()
+
+# Add ApiVoid keys variables (similar structure)
+apivoid_key_index = 0
+apivoid_key_lock = threading.Lock()
+exhausted_apivoid_keys = set()
+apivoid_keys_used = set()
+apivoid_keys_success = set()
 
 exhausted_other_keys = set()
 used_services = set()
@@ -268,6 +275,16 @@ def get_next_vt_key():
                 return key
         return None
 
+def get_next_apivoid_key():
+    global apivoid_key_index
+    with apivoid_key_lock:
+        if not APIVOID_KEYS:
+            return None
+        key = APIVOID_KEYS[apivoid_key_index]
+        apivoid_key_index = (apivoid_key_index + 1) % len(APIVOID_KEYS)
+        return key
+
+
 def fetch_virustotal_url_data(url):
     result = {
         "detections": None,
@@ -447,6 +464,33 @@ def is_valid_ip(ip):
 
 from concurrent.futures import ThreadPoolExecutor
 
+def call_apivoid(ip):
+    status_code = None
+    for _ in range(len(APIVOID_KEYS)):
+        apivoid_key = get_next_apivoid_key()
+        if not apivoid_key:
+            return None, None, None
+
+        headers = {"Content-Type": "application/json", "X-API-Key": apivoid_key}
+        try:
+            resp = requests.post(
+                "https://api.apivoid.com/v2/ip-reputation",
+                json={"ip": ip},
+                headers=headers,
+                timeout=10
+            )
+            status_code = resp.status_code
+            if resp.status_code == 200:
+                data = resp.json().get("data", {})
+                return data, apivoid_key, status_code
+            elif resp.status_code in (401, 429, 403):
+                exhausted_apivoid_keys.add(apivoid_key)
+                continue
+        except Exception:
+            exhausted_apivoid_keys.add(apivoid_key)
+            return None, apivoid_key, "Error"
+    return None, None, status_code
+
 def get_ip_info(ip, vt_keys_exhausted=False):
     ip_info = {
         "entry": ip,
@@ -526,34 +570,26 @@ def get_ip_info(ip, vt_keys_exhausted=False):
                 return {}, None
         return None, None
 
-    with ThreadPoolExecutor(max_workers=2) as executor:
+    with ThreadPoolExecutor(max_workers=3) as executor:
         vt_future = executor.submit(call_virustotal)
         abuseipdb_future = executor.submit(call_abuseipdb)
+        apivoid_future = executor.submit(call_apivoid, ip)
 
         vt_result, vt_key = vt_future.result()
         abuseipdb_result, abuseipdb_key = abuseipdb_future.result()
-    if vt_result:
-        if vt_keys_exhausted:
-            print(f"DEBUG [get_ip_info]: VT keys exhausted, suppressing detection count for IP {ip}")
-            det_vt = 0
-        else:
-            det_vt = vt_result.get("last_analysis_stats", {}).get("malicious", 0) or 0
-        print(f"DEBUG [get_ip_info]: IP {ip}, detection count set to {det_vt}")
-        ip_info["detections"] = det_vt
+        apivoid_result, apivoid_key, apivoid_status = apivoid_future.result()
+        
+        ip_info["status_codes"]["APIVoid"] = apivoid_status
 
+
+    # VirusTotal results processing
     if vt_result:
+        det_vt = 0 if vt_keys_exhausted else vt_result.get("last_analysis_stats", {}).get("malicious", 0) or 0
+        ip_info["detections"] = det_vt
         asn_vt = vt_result.get("asn", "")
         isp_vt = vt_result.get("as_owner", "")
         ctr_vt = vt_result.get("country", "")
-
-        if not vt_keys_exhausted:
-            det_vt = vt_result.get("last_analysis_stats", {}).get("malicious", 0) or 0
-        else:
-            det_vt = 0
-
-        ip_info["detections"] = det_vt
         ip_info["service_sources"]["detections"] = "VirusTotal" if not vt_keys_exhausted else None
-
         if asn_vt:
             ip_info["asn"] = asn_vt
             ip_info["service_sources"]["asn"] = "VirusTotal"
@@ -563,11 +599,11 @@ def get_ip_info(ip, vt_keys_exhausted=False):
         if ctr_vt:
             ip_info["country"] = get_country_name(ctr_vt)
             ip_info["service_sources"]["country"] = "VirusTotal"
-
         ip_info["used_service"] = "VirusTotal"
         ip_info["used_key"] = vt_key
         vt_keys_success.add(vt_key)
 
+    # AbuseIPDB results
     if abuseipdb_result:
         if abuseipdb_result.get("asn") and not ip_info["asn"]:
             ip_info["asn"] = abuseipdb_result["asn"]
@@ -580,10 +616,27 @@ def get_ip_info(ip, vt_keys_exhausted=False):
             ip_info["service_sources"]["country"] = "AbuseIPDB"
         ip_info["abuseipdb_confidence_score"] = abuseipdb_result.get("abuseConfidenceScore")
         ip_info["abuseipdb_report_count"] = abuseipdb_result.get("totalReports")
-
         if ip_info["used_service"] != "VirusTotal":
             ip_info["used_service"] = "AbuseIPDB"
             ip_info["used_key"] = abuseipdb_key
+
+    # APIVoid results
+    if apivoid_result:
+        # Example mappings, adjust keys based on actual APIVoid response structure
+        risk_score = apivoid_result.get("risk_score", {}).get("result")
+        blacklist_detections = apivoid_result.get("blacklists", {}).get("detections", 0)
+        country = apivoid_result.get("information", {}).get("country_name", "")
+
+        ip_info["apivoid_risk_score"] = risk_score
+        ip_info["apivoid_blacklist_detections"] = blacklist_detections
+
+        if country and not ip_info["country"]:
+            ip_info["country"] = country
+            ip_info["service_sources"]["country"] = "APIVoid"
+
+        if ip_info["used_service"] not in ("VirusTotal", "AbuseIPDB"):
+            ip_info["used_service"] = "APIVoid"
+            ip_info["used_key"] = apivoid_key
 
     return ip_info
 
@@ -707,47 +760,83 @@ def get_hash_tie_data(hash_value):
         "data": {},  # keep empty data object for compatibility
     }
 
+def call_apivoid_url(url):
+    for _ in range(len(APIVOID_KEYS)):
+        apivoid_key = get_next_apivoid_key()
+        if not apivoid_key:
+            return None
+        headers = {"Content-Type": "application/json", "X-API-Key": apivoid_key}
+        try:
+            resp = requests.post(
+                "https://api.apivoid.com/v2/url-reputation",
+                json={"url": url},
+                headers=headers,
+                timeout=10
+            )
+            if resp.status_code == 200:
+                return resp.json().get("data", {})
+            elif resp.status_code in (401, 429, 403):
+                exhausted_apivoid_keys.add(apivoid_key)
+                continue
+        except Exception:
+            exhausted_apivoid_keys.add(apivoid_key)
+            return None
+    return None
+
 def lookup_url(url):
-    with ThreadPoolExecutor(max_workers=2) as executor:
+    """Perform parallel URL reputation queries using VirusTotal, AbuseIPDB, and APIVoid."""
+    with ThreadPoolExecutor(max_workers=3) as executor:
         vt_future = executor.submit(fetch_virustotal_url_data, url)
         abuseipdb_future = executor.submit(entryabuseipdburl, url)
+        apivoid_future = executor.submit(call_apivoid_url, url)
 
         vt_data = vt_future.result() or {}
         abuseipdb_data = abuseipdb_future.result() or {}
+        apivoid_data, apivoid_key = apivoid_future.result() or ({}, None)
 
-    used_services.add("VirusTotal")
-    # AbuseIPDB will not add any data here for URLs
+    used_services.update(["VirusTotal", "APIVoid"])
 
-    # Always take detections from VT (0 if missing)
     detections = vt_data.get("detections") or 0
-
-    # Combine data - AbuseIPDB fields if any - will be None or missing here for URLs
-    # You can add AbuseIPDB fields here if relevant for UI or storage
     abuseipdb_confidence_score = abuseipdb_data.get("abuse_confidence_score")
     abuseipdb_report_count = abuseipdb_data.get("reports")
+
+    # Parse APIVoid-specific details, based on confirmed JSON structure
+    risk_score = apivoid_data.get("risk_score", {}).get("result")
+    blacklist_detections = apivoid_data.get("domain_blacklist", {}).get("detections", 0)
+    engine_count = apivoid_data.get("domain_blacklist", {}).get("engines_count", 0)
+    asn = apivoid_data.get("server_details", {}).get("asn", "")
+    isp = apivoid_data.get("server_details", {}).get("isp", "")
+    country = apivoid_data.get("server_details", {}).get("country_name", "")
+    server_ip = apivoid_data.get("server_details", {}).get("ip", "")
 
     return {
         "type": "url",
         "entry": url,
         "hostname": urlparse(url if url.startswith("http") else f"http://{url}").hostname,
-        "ip": url,
-        "asn": "",
-        "isp": "N/A",
-        "country": "N/A",
+        "ip": server_ip or url,
+        "asn": asn,
+        "isp": isp or "N/A",
+        "country": country or "N/A",
         "detections": detections,
         "abuseipdb_confidence_score": abuseipdb_confidence_score,
         "abuseipdb_report_count": abuseipdb_report_count,
+        "apivoid_risk_score": risk_score,
+        "apivoid_blacklist_detections": blacklist_detections,
+        "apivoid_blacklist_engines": engine_count,
         "vt_key_used": mask_key(vt_data.get("vt_key_used")) if vt_data.get("vt_key_used") else None,
-
+        "apivoid_key_used": mask_key(apivoid_key) if apivoid_key else None,
         "service_sources": {
-            "asn": None,
-            "isp": None,
-            "country": None,
+            "asn": "APIVoid" if asn else None,
+            "isp": "APIVoid" if isp else None,
+            "country": "APIVoid" if country else None,
             "detections": "VirusTotal URL"
         },
-        "status_codes": vt_data.get("status_codes", {}),
+        "status_codes": {
+            "VirusTotal": vt_data.get("status_codes", {}).get("VirusTotal"),
+            "AbuseIPDB": abuseipdb_data.get("status_codes", {}).get("AbuseIPDB"),
+            "APIVoid": apivoid_data.get("status_code", 200)
+        },
     }
-
 
 # ✅ `handle_ip_lookup()` and `/download_excel` + `/` route are included in [next message] due to length...
 @app.route("/about")
@@ -771,7 +860,10 @@ def handle_ip_lookup():
     abuseipdb_keys_used.clear()
     abuseipdb_keys_success.clear()
     exhausted_abuseipdb_keys.clear()
-
+    apivoid_keys_used.clear()
+    apivoid_keys_success.clear()
+    exhausted_apivoid_keys.clear()
+    
     seen = set()
     valid_entries = []
     for entry in entries:
@@ -850,6 +942,12 @@ def handle_ip_lookup():
                     data[key] = details.get(key)
 
         ioc_parts = []
+        apivoid_parts = []
+        if data.get("apivoid_risk_score") is not None:
+            apivoid_parts.append(f"APIVoid risk score: {data['apivoid_risk_score']}.")
+        if data.get("apivoid_blacklist_detections") is not None and data.get("apivoid_blacklist_detections") > 0:
+            apivoid_parts.append(f"APIVoid blacklist detections: {data['apivoid_blacklist_detections']}.")
+
         for field, label in [
             ("threat_actor", "threat actor"),
             ("campaign_name", "campaign name"),
@@ -864,12 +962,16 @@ def handle_ip_lookup():
         ioc_summary = ""
         if ioc_parts:
             ioc_summary = f" IOC Details: The {'URL' if entry_type == 'url' else 'IP' if entry_type == 'ip' else 'Hash'} is associated with " + ", ".join(ioc_parts) + "."
+        apivoid_summary = ""
+        if apivoid_parts:
+            apivoid_summary = f" The {'URL' if entry_type == 'url' else 'IP' if entry_type == 'ip' else 'Hash'} has " + ", ".join(apivoid_parts) 
 
         if entry_type == "url":
             categories = data.get("categories", [])
             category_str = f" Categories: {', '.join(categories)}." if categories else ""
             summary = (
                 f"The URL: {data.get('entry')} has {data.get('detections', 0)} malicious detections."
+                + apivoid_summary
                 + category_str + ioc_summary
             )
         elif entry_type == "hash":
@@ -917,6 +1019,7 @@ def handle_ip_lookup():
                 f"The IP: {data.get('entry')} belongs to ISP: {data.get('isp') or 'N/A'}, "
                 f"from Country: {data.get('country') or 'N/A'}"
                 + detection_info
+                + apivoid_summary
                 + abuseipdb_info
                 + ioc_summary
             )
@@ -937,6 +1040,8 @@ def handle_ip_lookup():
                     "asn": record.asn or "",
                     "country": record.country or "",
                     "detections": record.detection_count or 0,
+                    "apivoid_risk_score": getattr(record, "apivoid_risk_score", None),
+                    "apivoid_blacklist_detections": getattr(record, "apivoid_blacklist_detections", None),
                     "abuseipdb_confidence_score": getattr(record, "abuseipdb_confidence_score", None),
                     "abuseipdb_report_count": getattr(record, "abuseipdb_report_count", None),
                     "threat_actor": record.threat_actor or "-",
@@ -1092,6 +1197,8 @@ def handle_ip_lookup():
         detections = r.get("detections")
         if detections is None:
             detections = "-"
+        apivoid_risk_score = str(r.get("apivoid_risk_score", "-"))
+        apivoid_blacklist_detections = str(r.get("apivoid_blacklist_detections", "-"))
         abuseipdb_confidence = str(r.get("abuseipdb_confidence_score", "-"))
         abuseipdb_report_count = str(r.get("abuseipdb_report_count", "-"))
         threat_actor = r.get("threat_actor", "-")
@@ -1106,6 +1213,8 @@ def handle_ip_lookup():
             isp,
             country,
             detections,
+            apivoid_risk_score,
+            apivoid_blacklist_detections,
             abuseipdb_confidence,
             abuseipdb_report_count,
             threat_actor,
@@ -1183,6 +1292,7 @@ def handle_ip_lookup():
 
     vt_ok = vt_keys_used & vt_keys_success
     vt_bad = exhausted_vt_keys.copy()
+    
 
     safe_print("\n📊 API USAGE SUMMARY")
     safe_print(f"⏰ Search Timestamp (IST): {timestamp_ist}")
@@ -1203,6 +1313,22 @@ def handle_ip_lookup():
     vt_unused = set(VT_KEYS) - (vt_keys_success | exhausted_vt_keys)
     safe_print(f"\n🟡 Unused VT Keys: {len(vt_unused)}")
     for k in vt_unused:
+        safe_print(f"    {mask_key(k)}")
+
+    apivoid_ok = apivoid_keys_used & apivoid_keys_success if 'apivoid_keys_used' in globals() and 'apivoid_keys_success' in globals() else set()
+    apivoid_bad = exhausted_apivoid_keys.copy() if 'exhausted_apivoid_keys' in globals() else set()
+
+    safe_print(f"\n✅ Successfully Used APIVoid Keys: {len(apivoid_ok)}")
+    for k in sorted(apivoid_ok):
+        safe_print(f"    {mask_key(k)}")
+
+    safe_print(f"\n❌ Exhausted APIVoid Keys: {len(apivoid_bad)}")
+    for k in sorted(apivoid_bad):
+        safe_print(f"    {mask_key(k)}")
+
+    apivoid_unused = set(APIVOID_KEYS) - (apivoid_keys_success | exhausted_apivoid_keys) if 'apivoid_keys_success' in globals() and 'exhausted_apivoid_keys' in globals() else set()
+    safe_print(f"\n🟡 Unused APIVoid Keys: {len(apivoid_unused)}")
+    for k in sorted(apivoid_unused):
         safe_print(f"    {mask_key(k)}")
 
     abuseipdb_ok = abuseipdb_keys_used & abuseipdb_keys_success
@@ -1231,7 +1357,7 @@ def handle_ip_lookup():
     if "IPINFO" in used_services:
         safe_print("  IPInfo Key:", mask_key(IPINFO_KEY))
     if "APIVoid" in used_services:
-        safe_print("  APIVoid Key:", mask_key(APIVOID_KEY))
+        safe_print("  APIVoid Key:", mask_key(APIVOID_KEYS))
 
     safe_print("\n📋 Per Entry Summary:\n")
     for r in results:
@@ -1242,13 +1368,16 @@ def handle_ip_lookup():
 
         service_sources = r.get("service_sources", {})
         main_parts = [
-            f"ASN: {r.get('asn','N/A')} (from {service_sources.get('asn') or '—'})",
-            f"ISP: {r.get('isp','N/A')} (from {service_sources.get('isp') or '—'})",
-            f"Country: {r.get('country','N/A')} (from {service_sources.get('country') or '—'})",
-            f"Detections: {r.get('detections',0)} (from {service_sources.get('detections') or '—'})",
-            f"AbuseIPDB Confidence Score: {r.get('abuseipdb_confidence_score', '-')} (from AbuseIPDB)",
-            f"AbuseIPDB Report Count: {r.get('abuseipdb_report_count', '-')} (from AbuseIPDB)\n"
-        ]
+                f"ASN: {r.get('asn','N/A')} (from {service_sources.get('asn') or '—'})",
+                f"ISP: {r.get('isp','N/A')} (from {service_sources.get('isp') or '—'})",
+                f"Country: {r.get('country','N/A')} (from {service_sources.get('country') or '—'})",
+                f"Detections: {r.get('detections',0)} (from {service_sources.get('detections') or '—'})",
+                f"APIVoid Risk Score: {r.get('apivoid_risk_score', '-')} (from APIVoid)",
+                f"APIVoid Blacklist Detections: {r.get('apivoid_blacklist_detections', '-')} (from APIVoid)",
+                f"AbuseIPDB Confidence Score: {r.get('abuseipdb_confidence_score', '-')} (from AbuseIPDB)",
+                f"AbuseIPDB Report Count: {r.get('abuseipdb_report_count', '-')} (from AbuseIPDB)\n"
+            ]
+
 
         status_parts = [f"{svc}={code}" for svc, code in r.get("status_codes", {}).items()]
 
@@ -1268,6 +1397,9 @@ def handle_ip_lookup():
 
     if len(exhausted_abuseipdb_keys) == len(ABUSEIPDB_KEYS) and len(ABUSEIPDB_KEYS) > 0:
         exhausted_messages.append("❌ All AbuseIPDB API keys are exhausted for the day.")
+        
+    if len(exhausted_apivoid_keys) == len(APIVOID_KEYS) and len(APIVOID_KEYS) > 0:
+        exhausted_messages.append("❌ All APIVOID API keys are exhausted for the day.")
 
     return jsonify({
         "summary": summary_text,
@@ -1299,6 +1431,8 @@ def download_excel():
 
     headers = [
         column_label, "ISP", "Country", "Detections",
+        "APIVoid Risk Score",
+        "APIVoid Blacklist Detections",
         "AbuseIPDB Confidence Score", "AbuseIPDB Report Count",
         "Threat Actor", "Country Of Origin", "Target Sector",
         "Threat Category", "Campaign Name", "Malware Families"
@@ -1310,17 +1444,20 @@ def download_excel():
         isp = row[1]
         country = row[2]
         detections = row[3]
-        abuseipdb_confidence = row[4]
-        abuseipdb_report_count = row[5]
-        threat_actor = row[6]
-        country_origin = row[7]
-        target_sector = row[8]
-        threat_category = row[9]
-        campaign_name = row[10]
-        malware_families = row[11]
+        apivoid_risk_score = row[4]               # New APIVoid field index
+        apivoid_blacklist_detections = row[5]    # New APIVoid field index
+        abuseipdb_confidence = row[6]
+        abuseipdb_report_count = row[7]
+        threat_actor = row[8]
+        country_origin = row[9]
+        target_sector = row[10]
+        threat_category = row[11]
+        campaign_name = row[12]
+        malware_families = row[13]
 
         ws_table.append([
             ip_or_url, isp, country, detections,
+            apivoid_risk_score, apivoid_blacklist_detections, # Include APIVoid fields here
             abuseipdb_confidence, abuseipdb_report_count,
             threat_actor, country_origin, target_sector,
             threat_category, campaign_name, malware_families
