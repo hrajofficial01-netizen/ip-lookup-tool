@@ -19,7 +19,6 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from iso3166 import countries
-from tie_service import get_ip_tie_data, get_domain_tie_data, extract_enrichment_fields
 from concurrent.futures import ThreadPoolExecutor
 from db import SessionLocal
 from models import LookupData, SearchLog
@@ -822,7 +821,6 @@ def handle_ip_lookup():
         column_label = "IP/URL/HASH"
 
 
-    from tie_service import get_ip_tie_data, get_domain_tie_data, extract_enrichment_fields, get_actor_info_from_entry
     from concurrent.futures import ThreadPoolExecutor
 
     def serialize_field(value):
@@ -959,7 +957,7 @@ def handle_ip_lookup():
                         tie_result = tie_future.result()
                         actor_details = actor_info_future.result()
                     if tie_result and tie_result.get("data"):
-                        enrichment = extract_enrichment_fields(tie_result)
+                        enrichment = extract_enrichment_fields(tie_result,"ip")
                         used_services.add("ThreatIntel")
                     else:
                         enrichment = {k: None for k in
@@ -999,7 +997,7 @@ def handle_ip_lookup():
                         actor_details = actor_info_future.result()
                     if tie_result and tie_result.get("data"):
                         used_services.add("ThreatIntel")
-                        enrichment = extract_enrichment_fields(tie_result)
+                        enrichment = extract_enrichment_fields(tie_result,"url")
                     else:
                         enrichment = {k: None for k in
                                     ("threat_actor", "campaign_name", "malware_families", "country_origin",
@@ -1041,7 +1039,7 @@ def handle_ip_lookup():
                         vt_result = vt_future.result() or {}
                         tie_result = tie_future.result()
                         actor_details = actor_info_future.result()
-                    enrichment = extract_enrichment_fields(tie_result) if tie_result.get("data") else {k: None for k in THREAT_FIELDS}
+                    enrichment = extract_enrichment_fields(tie_result,"hash") if tie_result.get("data") else {k: None for k in THREAT_FIELDS}
                     if actor_details:
                         enrichment.update({k: actor_details.get(k, enrichment.get(k)) for k in THREAT_FIELDS})
                     for key in THREAT_FIELDS:
