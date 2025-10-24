@@ -588,7 +588,6 @@ def parse_hash_enrichment(source_data):
         return default
 
     # Extract malicious detections
-    print(f"DEBUG keys in source_data: {list(source_data.keys())}")
     detections = safe_get(source_data, "last_analysis_stats", "malicious", default=0)
 
     # Extract popular threat label from "popularthreatname" or "suggestedthreatlabel"
@@ -669,7 +668,7 @@ def get_hash_info(hash_value, vt_keys_exhausted=False):
     vt_result, vt_key = call_virustotal()
     if vt_result:
         parsed = parse_hash_enrichment(vt_result)
-        print(f"DEBUG: Parsed popular_threat_label = {parsed.get('popular_threat_label')}")
+        
         hash_info.update({
             "detections": parsed["detections"],
             "service_sources": {"detections": "VirusTotal"},
@@ -713,8 +712,6 @@ def call_apivoid_url(url):
                 timeout=10
             )
             apivoid_keys_used.add(apivoid_key)
-            print("APIVoid raw response JSON:", resp.text)  # Debug print
-            print("Using APIVoid key:", apivoid_key)
             if resp.status_code == 200:
                 apivoid_keys_success.add(apivoid_key)
                 used_services.add("APIVoid")
@@ -873,8 +870,6 @@ def handle_ip_lookup():
         return str(value)
 
     def build_summary(data, entry_type, vt_keys_exhausted=False):
-        print(f"DEBUG [build_summary]: {data.get('entry')}, vt_keys_exhausted={vt_keys_exhausted}")
-
         def is_meaningful(value):
             if value is None:
                 return False
