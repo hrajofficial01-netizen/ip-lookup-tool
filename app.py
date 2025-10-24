@@ -561,7 +561,7 @@ def get_ip_info(ip, vt_keys_exhausted=False):
 
     # APIVoid results processing
     if apivoid_result:
-        print("APIVoid result:", apivoid_result)
+        
         risk_score = apivoid_result.get("risk_score", {}).get("result")
         blacklist_detections = apivoid_result.get("blacklists", {}).get("detections", 0)
         country = apivoid_result.get("information", {}).get("country_name", "")
