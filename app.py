@@ -149,6 +149,8 @@ def upsert_lookup_data(result):
 
         abuseipdb_confidence_score = result.get("abuseipdb_confidence_score")
         abuseipdb_report_count = result.get("abuseipdb_report_count")
+        apivoid_risk_score = result.get("apivoid_risk_score")
+        apivoid_blacklist_detections = result.get("apivoid_blacklist_detections")
 
         details_json = result.get("details_json")  # New JSONB enrichment data container
 
@@ -169,7 +171,9 @@ def upsert_lookup_data(result):
                 country_origin=country_origin,
                 target_sector=target_sector,
                 threat_category=threat_category,
-                details_json=details_json  # Store JSONB data here
+                details_json=details_json,  # Store JSONB data here
+                apivoid_risk_score=apivoid_risk_score,
+                apivoid_blacklist_detections=apivoid_blacklist_detections
             )
             session.add(new)
             session.commit()
@@ -278,11 +282,12 @@ def get_next_vt_key():
 def get_next_apivoid_key():
     global apivoid_key_index
     with apivoid_key_lock:
-        if not APIVOID_KEYS:
-            return None
-        key = APIVOID_KEYS[apivoid_key_index]
-        apivoid_key_index = (apivoid_key_index + 1) % len(APIVOID_KEYS)
-        return key
+        for _ in range(len(APIVOID_KEYS)):
+            key = APIVOID_KEYS[apivoid_key_index % len(APIVOID_KEYS)]
+            apivoid_key_index += 1
+            if key and key not in exhausted_apivoid_keys:
+                return key
+        return None
 
 
 def fetch_virustotal_url_data(url):
@@ -342,78 +347,10 @@ def fetch_virustotal_url_data(url):
     return result
 
 
-# -------------------------------
-# VirusTotal IP entry with Key Rotation
-# -------------------------------
-def entry_virustotal(ip):
-    tried = set()
-    while True:
-        key = get_next_vt_key()
-        if not key or key in tried:
-            break
-        
-        tried.add(key)
-    
-        headers = {"x-apikey": key}
-        vt_keys_used.add(key)
-        try:
-            resp = requests.get(f"https://www.virustotal.com/api/v3/ip_addresses/{ip}", headers=headers, timeout=10)
-            if resp.status_code in (401,429, 403):
-                exhausted_vt_keys.add(key)
-                continue
-            if resp.status_code != 200:
-                return {}, f"VTError {resp.status_code}", key
-            data = resp.json().get("data", {}).get("attributes", {})
-            vt_keys_success.add(key)
-            return {
-                "isp": data.get("as_owner"),
-                "country": get_country_name(data.get("country")),
-                "detections": data.get("last_analysis_stats", {}).get("malicious", 0)
-            }, "VT", key
-        except Exception as e:
-            exhausted_vt_keys.add(key)
-            return {}, f"VT Exception: {str(e)}", key
-    return {}, "NoVTKeyAvailable", None
-
 
 # -------------------------------
 # AbuseIPDB entry with Rate-Limit Handling
 # -------------------------------
-def entry_abuseipdb(ip):
-    tried = set()
-    while True:
-        key = get_next_abuseipdb_key()
-        if not key or key in tried:
-            break
-        tried.add(key)
-        headers = {"Key": key, "Accept": "application/json"}
-        try:
-            resp = requests.get(
-                f"https://api.abuseipdb.com/api/v2/check?ipAddress={ip}&maxAgeInDays=90",
-                headers=headers, timeout=10
-            )
-            if resp.status_code == 429:  # Rate limit
-                exhausted_abuseipdb_keys.add(key)
-                continue
-            if resp.status_code in (401, 403):  # Auth error also consider exhausted
-                exhausted_abuseipdb_keys.add(key)
-                continue
-            if resp.status_code != 200:
-                return {}, f"AbuseIPDB Error {resp.status_code}", key
-            data = resp.json().get("data", {})
-            used_services.add("AbuseIPDB")
-            abuseipdb_keys_used.add(key)
-            abuseipdb_keys_success.add(key)
-            return {
-                "isp": data.get("isp"),
-                "country": get_country_name(data.get("countryCode")),
-                "detections": data.get("totalReports", 0)
-            }, "AbuseIPDB", key
-        except Exception as e:
-            exhausted_abuseipdb_keys.add(key)
-            return {}, f"AbuseIPDB Exception: {str(e)}", key
-    return {}, "NoAbuseIPDBKeyAvailable", None
-
 def is_valid_public_ip(ip):
     try:
         ip_obj = ipaddress.ip_address(ip)
@@ -463,33 +400,6 @@ def is_valid_ip(ip):
         return False
 
 from concurrent.futures import ThreadPoolExecutor
-
-def call_apivoid(ip):
-    status_code = None
-    for _ in range(len(APIVOID_KEYS)):
-        apivoid_key = get_next_apivoid_key()
-        if not apivoid_key:
-            return None, None, None
-
-        headers = {"Content-Type": "application/json", "X-API-Key": apivoid_key}
-        try:
-            resp = requests.post(
-                "https://api.apivoid.com/v2/ip-reputation",
-                json={"ip": ip},
-                headers=headers,
-                timeout=10
-            )
-            status_code = resp.status_code
-            if resp.status_code == 200:
-                data = resp.json().get("data", {})
-                return data, apivoid_key, status_code
-            elif resp.status_code in (401, 429, 403):
-                exhausted_apivoid_keys.add(apivoid_key)
-                continue
-        except Exception:
-            exhausted_apivoid_keys.add(apivoid_key)
-            return None, apivoid_key, "Error"
-    return None, None, status_code
 
 def get_ip_info(ip, vt_keys_exhausted=False):
     ip_info = {
@@ -552,6 +462,7 @@ def get_ip_info(ip, vt_keys_exhausted=False):
                     timeout=10
                 )
                 ip_info["status_codes"]["AbuseIPDB"] = resp.status_code
+                abuseipdb_keys_used.add(key)
                 if resp.status_code == 429:
                     exhausted_abuseipdb_keys.add(key)
                     continue
@@ -560,7 +471,7 @@ def get_ip_info(ip, vt_keys_exhausted=False):
                     continue
                 if resp.status_code != 200:
                     return {}, None
-                abuseipdb_keys_used.add(key)
+        
                 abuseipdb_keys_success.add(key)
                 used_services.add("AbuseIPDB")
                 return resp.json().get("data", {}), key
@@ -570,17 +481,45 @@ def get_ip_info(ip, vt_keys_exhausted=False):
                 return {}, None
         return None, None
 
+    def call_apivoid():
+        for _ in range(len(APIVOID_KEYS)):
+            apivoid_key = get_next_apivoid_key()
+            if not apivoid_key:
+                return None, None, None
+            headers = {"Content-Type": "application/json", "X-API-Key": apivoid_key}
+            try:
+                resp = requests.post(
+                    "https://api.apivoid.com/v2/ip-reputation",
+                    json={"ip": ip},
+                    headers=headers,
+                    timeout=10
+                )
+                ip_info["status_codes"]["APIVoid"] = resp.status_code
+                apivoid_keys_used.add(apivoid_key)
+                print(apivoid_key)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    
+                    apivoid_keys_success.add(apivoid_key)
+                    used_services.add("APIVoid")
+                    return data, apivoid_key, resp.status_code
+                elif resp.status_code in (401, 403, 429):
+                    exhausted_apivoid_keys.add(apivoid_key)
+                    continue
+            except Exception:
+                ip_info["status_codes"]["APIVoid"] = "Error"
+                exhausted_apivoid_keys.add(apivoid_key)
+                return None, apivoid_key, "Error"
+        return None, None, None
+
     with ThreadPoolExecutor(max_workers=3) as executor:
         vt_future = executor.submit(call_virustotal)
         abuseipdb_future = executor.submit(call_abuseipdb)
-        apivoid_future = executor.submit(call_apivoid, ip)
+        apivoid_future = executor.submit(call_apivoid)
 
         vt_result, vt_key = vt_future.result()
         abuseipdb_result, abuseipdb_key = abuseipdb_future.result()
         apivoid_result, apivoid_key, apivoid_status = apivoid_future.result()
-        
-        ip_info["status_codes"]["APIVoid"] = apivoid_status
-
 
     # VirusTotal results processing
     if vt_result:
@@ -603,7 +542,7 @@ def get_ip_info(ip, vt_keys_exhausted=False):
         ip_info["used_key"] = vt_key
         vt_keys_success.add(vt_key)
 
-    # AbuseIPDB results
+    # AbuseIPDB results processing
     if abuseipdb_result:
         if abuseipdb_result.get("asn") and not ip_info["asn"]:
             ip_info["asn"] = abuseipdb_result["asn"]
@@ -620,9 +559,9 @@ def get_ip_info(ip, vt_keys_exhausted=False):
             ip_info["used_service"] = "AbuseIPDB"
             ip_info["used_key"] = abuseipdb_key
 
-    # APIVoid results
+    # APIVoid results processing
     if apivoid_result:
-        # Example mappings, adjust keys based on actual APIVoid response structure
+        print("APIVoid result:", apivoid_result)
         risk_score = apivoid_result.get("risk_score", {}).get("result")
         blacklist_detections = apivoid_result.get("blacklists", {}).get("detections", 0)
         country = apivoid_result.get("information", {}).get("country_name", "")
@@ -764,24 +703,31 @@ def call_apivoid_url(url):
     for _ in range(len(APIVOID_KEYS)):
         apivoid_key = get_next_apivoid_key()
         if not apivoid_key:
-            return None
+            return None, None
         headers = {"Content-Type": "application/json", "X-API-Key": apivoid_key}
         try:
             resp = requests.post(
-                "https://api.apivoid.com/v2/url-reputation",
-                json={"url": url},
+                "https://api.apivoid.com/v2/domain-reputation",
+                json={"host": url},
                 headers=headers,
                 timeout=10
             )
+            apivoid_keys_used.add(apivoid_key)
+            print("APIVoid raw response JSON:", resp.text)  # Debug print
+            print("Using APIVoid key:", apivoid_key)
             if resp.status_code == 200:
-                return resp.json().get("data", {})
+                apivoid_keys_success.add(apivoid_key)
+                used_services.add("APIVoid")
+                return resp.json(), apivoid_key
+
             elif resp.status_code in (401, 429, 403):
                 exhausted_apivoid_keys.add(apivoid_key)
                 continue
         except Exception:
             exhausted_apivoid_keys.add(apivoid_key)
-            return None
-    return None
+            return None, apivoid_key
+    return None, None
+
 
 def lookup_url(url):
     """Perform parallel URL reputation queries using VirusTotal, AbuseIPDB, and APIVoid."""
@@ -794,13 +740,13 @@ def lookup_url(url):
         abuseipdb_data = abuseipdb_future.result() or {}
         apivoid_data, apivoid_key = apivoid_future.result() or ({}, None)
 
-    used_services.update(["VirusTotal", "APIVoid"])
+    used_services.update(["VirusTotal", "AbuseIPDB", "APIVoid"])
 
     detections = vt_data.get("detections") or 0
     abuseipdb_confidence_score = abuseipdb_data.get("abuse_confidence_score")
     abuseipdb_report_count = abuseipdb_data.get("reports")
 
-    # Parse APIVoid-specific details, based on confirmed JSON structure
+    # Parse APIVoid-specific details, adjusting keys as per confirmed JSON structure
     risk_score = apivoid_data.get("risk_score", {}).get("result")
     blacklist_detections = apivoid_data.get("domain_blacklist", {}).get("detections", 0)
     engine_count = apivoid_data.get("domain_blacklist", {}).get("engines_count", 0)
@@ -851,6 +797,10 @@ def handle_ip_lookup():
     client_name = data.get("client_name", "").strip()
     global used_services, unused_services, vt_keys_used, vt_keys_success, exhausted_other_keys
     global abuseipdb_keys_used, abuseipdb_keys_success, exhausted_abuseipdb_keys
+    global apivoid_keys_used, apivoid_keys_success, exhausted_apivoid_keys
+    apivoid_keys_used.clear()
+    apivoid_keys_success.clear()
+    exhausted_apivoid_keys.clear()
 
     used_services.clear()
     unused_services.clear()
@@ -860,9 +810,7 @@ def handle_ip_lookup():
     abuseipdb_keys_used.clear()
     abuseipdb_keys_success.clear()
     exhausted_abuseipdb_keys.clear()
-    apivoid_keys_used.clear()
-    apivoid_keys_success.clear()
-    exhausted_apivoid_keys.clear()
+  
     
     seen = set()
     valid_entries = []
@@ -944,9 +892,9 @@ def handle_ip_lookup():
         ioc_parts = []
         apivoid_parts = []
         if data.get("apivoid_risk_score") is not None:
-            apivoid_parts.append(f"APIVoid risk score: {data['apivoid_risk_score']}.")
-        if data.get("apivoid_blacklist_detections") is not None and data.get("apivoid_blacklist_detections") > 0:
-            apivoid_parts.append(f"APIVoid blacklist detections: {data['apivoid_blacklist_detections']}.")
+            apivoid_parts.append(f"APIVoid shows risk score of : {data['apivoid_risk_score']} .")
+        #if data.get("apivoid_blacklist_detections") is not None and data.get("apivoid_blacklist_detections") > 0:
+            #apivoid_parts.append(f" and detection count of : {data['apivoid_blacklist_detections']}.")
 
         for field, label in [
             ("threat_actor", "threat actor"),
@@ -964,13 +912,18 @@ def handle_ip_lookup():
             ioc_summary = f" IOC Details: The {'URL' if entry_type == 'url' else 'IP' if entry_type == 'ip' else 'Hash'} is associated with " + ", ".join(ioc_parts) + "."
         apivoid_summary = ""
         if apivoid_parts:
-            apivoid_summary = f" The {'URL' if entry_type == 'url' else 'IP' if entry_type == 'ip' else 'Hash'} has " + ", ".join(apivoid_parts) 
+            apivoid_summary = f" " + ", ".join(apivoid_parts) 
 
+        vt_detections = data.get('detections', 0) if not vt_keys_exhausted else 0
+        apivoid_detections = data.get('apivoid_blacklist_detections', 0) or 0
+
+        max_detections = max(vt_detections, apivoid_detections)
+            
         if entry_type == "url":
             categories = data.get("categories", [])
             category_str = f" Categories: {', '.join(categories)}." if categories else ""
             summary = (
-                f"The URL: {data.get('entry')} has {data.get('detections', 0)} malicious detections."
+                f"The URL: {data.get('entry')} has {max_detections} malicious detections."
                 + apivoid_summary
                 + category_str + ioc_summary
             )
@@ -996,7 +949,7 @@ def handle_ip_lookup():
             #     reputation_str = f" Reputation score: {data.get('reputation')}."
 
             summary = (
-                f"The Hash: {data.get('entry')} has {data.get('detections', 0)} malicious detections"
+                f"The Hash: {data.get('entry')} has {max_detections} malicious detections"
                 + threat_label_str + size_str + file_name_str + ioc_summary#+ engines_str 
                 #+ first_seen_str + last_seen_str + reputation_str
             )
@@ -1011,8 +964,13 @@ def handle_ip_lookup():
             except (ValueError, TypeError):
                 abuseipdb_info = ""
 
+            vt_detections = data.get('detections', 0) if not vt_keys_exhausted else 0
+            apivoid_detections = data.get('apivoid_blacklist_detections', 0) or 0
+
+            max_detections = max(vt_detections, apivoid_detections)
+
             detection_info = (
-                f" with VirusTotal detection count of {data.get('detections', 0)}/95."
+                f" with detection count of {max_detections}/95."
             ) if not vt_keys_exhausted else ""
 
             summary = (
@@ -1310,7 +1268,7 @@ def handle_ip_lookup():
 
     if len(vt_bad) > 10:
         safe_print("⚠️ Warning: More than 10 VT keys are exhausted. Consider rotating or refreshing your keys.")
-    vt_unused = set(VT_KEYS) - (vt_keys_success | exhausted_vt_keys)
+    vt_unused = set(VT_KEYS) - (vt_keys_used)
     safe_print(f"\n🟡 Unused VT Keys: {len(vt_unused)}")
     for k in vt_unused:
         safe_print(f"    {mask_key(k)}")
@@ -1325,8 +1283,12 @@ def handle_ip_lookup():
     safe_print(f"\n❌ Exhausted APIVoid Keys: {len(apivoid_bad)}")
     for k in sorted(apivoid_bad):
         safe_print(f"    {mask_key(k)}")
+    
+    safe_print(f"\n✅  APIVoid Keys tried: {len(apivoid_keys_used)}")
+    for k in sorted(apivoid_keys_used):
+        safe_print(f"    {mask_key(k)}")
 
-    apivoid_unused = set(APIVOID_KEYS) - (apivoid_keys_success | exhausted_apivoid_keys) if 'apivoid_keys_success' in globals() and 'exhausted_apivoid_keys' in globals() else set()
+    apivoid_unused = set(APIVOID_KEYS) - (apivoid_keys_used) 
     safe_print(f"\n🟡 Unused APIVoid Keys: {len(apivoid_unused)}")
     for k in sorted(apivoid_unused):
         safe_print(f"    {mask_key(k)}")
@@ -1342,7 +1304,7 @@ def handle_ip_lookup():
     for k in abuseipdb_bad:
         safe_print(f"    {mask_key(k)}")
 
-    abuseipdb_unused = set(ABUSEIPDB_KEYS) - (abuseipdb_keys_success | exhausted_abuseipdb_keys)
+    abuseipdb_unused = set(ABUSEIPDB_KEYS) - (abuseipdb_keys_used)
     safe_print(f"\n🟡 Unused AbuseIPDB Keys: {len(abuseipdb_unused)}")
     for k in abuseipdb_unused:
         safe_print(f"    {mask_key(k)}")
@@ -1357,7 +1319,7 @@ def handle_ip_lookup():
     if "IPINFO" in used_services:
         safe_print("  IPInfo Key:", mask_key(IPINFO_KEY))
     if "APIVoid" in used_services:
-        safe_print("  APIVoid Key:", mask_key(APIVOID_KEYS))
+        safe_print("  APIVoid Key:", ", ".join(mask_key(k) for k in apivoid_ok))
 
     safe_print("\n📋 Per Entry Summary:\n")
     for r in results:

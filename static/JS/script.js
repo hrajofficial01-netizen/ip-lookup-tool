@@ -163,8 +163,8 @@ async function fetchIPData() {
     const headerRow = document.createElement("tr");
 
     let headerTitles = [
-    "IP/URL/HASH", "ISP", "Country", "Detections",
-    "APIVoid Risk Score", "APIVoid Blacklist Detections",
+    "IP/URL/HASH", "ISP", "Country", "VT Detection Count",
+    "APIVoid Risk Score", "APIVoid Detections Count",
     "AbuseIPDB Confidence Score(%)", "AbuseIPDB Report Count",
     "Threat Actor", "Country Of Origin", "Target Sector",
     "Threat Category", "Campaign Name", "Malware Families"
