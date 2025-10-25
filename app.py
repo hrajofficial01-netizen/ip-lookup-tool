@@ -415,7 +415,11 @@ def get_ip_info(ip, vt_keys_exhausted=False):
             "asn": None,
             "isp": None,
             "country": None,
-            "detections": None
+            "detections": None,
+            "abuseipdb_confidence_score": None,
+            "abuseipdb_report_count": None,
+            "apivoid_risk_score": None,
+            "apivoid_blacklist_detections": None
         }
     }
 
@@ -555,6 +559,10 @@ def get_ip_info(ip, vt_keys_exhausted=False):
             ip_info["service_sources"]["country"] = "AbuseIPDB"
         ip_info["abuseipdb_confidence_score"] = abuseipdb_result.get("abuseConfidenceScore")
         ip_info["abuseipdb_report_count"] = abuseipdb_result.get("totalReports")
+        if abuseipdb_result.get("abuseConfidenceScore") is not None:
+            ip_info["service_sources"]["abuseipdb_confidence_score"] = "AbuseIPDB"
+        if abuseipdb_result.get("totalReports") is not None:
+            ip_info["service_sources"]["abuseipdb_report_count"] = "AbuseIPDB"
         if ip_info["used_service"] != "VirusTotal":
             ip_info["used_service"] = "AbuseIPDB"
             ip_info["used_key"] = abuseipdb_key
@@ -576,6 +584,11 @@ def get_ip_info(ip, vt_keys_exhausted=False):
         if ip_info["used_service"] not in ("VirusTotal", "AbuseIPDB"):
             ip_info["used_service"] = "APIVoid"
             ip_info["used_key"] = apivoid_key
+        
+        if risk_score is not None:
+            ip_info["service_sources"]["apivoid_risk_score"] = "APIVoid"
+        if blacklist_detections is not None:
+            ip_info["service_sources"]["apivoid_blacklist_detections"] = "APIVoid"
 
     return ip_info
 
@@ -1322,21 +1335,33 @@ def handle_ip_lookup():
         if not entry_value:
             continue
 
-
         service_sources = r.get("service_sources", {})
+        
+        # Helper function to get source label
+        def get_source(field_name):
+            """Returns service source or 'database' as fallback"""
+            return service_sources.get(field_name) or 'database'
+        
         main_parts = [
-                f"ASN: {r.get('asn','N/A')} (from {service_sources.get('asn') or '—'})",
-                f"ISP: {r.get('isp','N/A')} (from {service_sources.get('isp') or '—'})",
-                f"Country: {r.get('country','N/A')} (from {service_sources.get('country') or '—'})",
-                f"Detections: {r.get('detections',0)} (from {service_sources.get('detections') or '—'})",
-                f"APIVoid Risk Score: {r.get('apivoid_risk_score', '-')} (from APIVoid)",
-                f"APIVoid Blacklist Detections: {r.get('apivoid_blacklist_detections', '-')} (from APIVoid)",
-                f"AbuseIPDB Confidence Score: {r.get('abuseipdb_confidence_score', '-')} (from AbuseIPDB)",
-                f"AbuseIPDB Report Count: {r.get('abuseipdb_report_count', '-')} (from AbuseIPDB)\n"
-            ]
+            f"ASN: {r.get('asn','N/A')} (from {get_source('asn')})",
+            f"ISP: {r.get('isp','N/A')} (from {get_source('isp')})",
+            f"Country: {r.get('country','N/A')} (from {get_source('country')})",
+            f"Detections: {r.get('detections',0)} (from {get_source('detections')})",
+            f"APIVoid Risk Score: {r.get('apivoid_risk_score', '-')} (from {get_source('apivoid_risk_score')})",
+            f"APIVoid Blacklist Detections: {r.get('apivoid_blacklist_detections', '-')} (from {get_source('apivoid_blacklist_detections')})",
+            f"AbuseIPDB Confidence Score: {r.get('abuseipdb_confidence_score', '-')} (from {get_source('abuseipdb_confidence_score')})",
+            f"AbuseIPDB Report Count: {r.get('abuseipdb_report_count', '-')} (from {get_source('abuseipdb_report_count')})\n"
+        ]
 
-
-        status_parts = [f"{svc}={code}" for svc, code in r.get("status_codes", {}).items()]
+        status_codes = r.get("status_codes", {}).copy()
+    
+        # Check if any data came from database
+        if any(get_source(field) == 'database' for field in ['asn', 'isp', 'country', 'detections', 
+                                                            'apivoid_risk_score', 'apivoid_blacklist_detections',
+                                                            'abuseipdb_confidence_score', 'abuseipdb_report_count']):
+            status_codes['database'] = 200
+        
+        status_parts = [f"{svc}={code}" for svc, code in status_codes.items()]
 
         safe_print()
         safe_print(
@@ -1347,7 +1372,7 @@ def handle_ip_lookup():
         safe_print()
 
     safe_print("----------------------------\n")
-    
+
     exhausted_messages = []
     if len(exhausted_vt_keys) == len(VT_KEYS) and len(VT_KEYS) > 0:
         exhausted_messages.append("❌ All VirusTotal API keys are exhausted for the day.")
