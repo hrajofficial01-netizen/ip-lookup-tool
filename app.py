@@ -295,7 +295,7 @@ def fetch_virustotal_url_data(url):
         "detections": None,
         "categories": [],
         "vt_key_used": None,
-        "status_codes": {},       # ← new
+        "status_codes": {"VirusTotal": None},  # ✅ Initialize with correct key
         "services_used": []
     }
 
@@ -312,7 +312,9 @@ def fetch_virustotal_url_data(url):
             data={"url": url},
             timeout=10
         )
-        result["status_codes"]["VT_URL_submit"] = post_resp.status_code
+        
+        # ✅ Store under "VirusTotal" key
+        result["status_codes"]["VirusTotal"] = post_resp.status_code
 
         if post_resp.status_code != 200:
             exhausted_vt_keys.add(key)
@@ -325,7 +327,9 @@ def fetch_virustotal_url_data(url):
             headers=headers,
             timeout=10
         )
-        result["status_codes"]["VT_URL_report"] = get_resp.status_code
+        
+        # ✅ Update to final status code (report is the main one we care about)
+        result["status_codes"]["VirusTotal"] = get_resp.status_code
 
         if get_resp.status_code != 200:
             exhausted_vt_keys.add(key)
@@ -335,17 +339,16 @@ def fetch_virustotal_url_data(url):
         result["detections"] = data.get("last_analysis_stats", {}).get("malicious", 0)
         result["categories"] = list(data.get("categories", {}).values())
         result["vt_key_used"] = key
-        result["services_used"].append("VirusTotal URL")
+        result["services_used"].append("VirusTotal")
 
         vt_keys_used.add(key)
         vt_keys_success.add(key)
 
     except Exception as e:
         safe_print(f"[ERROR] VT URL scan failed: {e}")
-        # you may also set result["status_codes"]["VT_URL_error"] = str(e)
+        result["status_codes"]["VirusTotal"] = "Error"  # ✅ Mark as error
 
     return result
-
 
 
 # -------------------------------
@@ -385,8 +388,12 @@ def is_valid_url(url):
         if not re.search(r"\.[a-zA-Z]{2,}$", hostname):
             return False
         
-     # ✅ Return lowercased version
-        return url.lower()
+        # ✅ Remove 'www.' prefix if present
+        if hostname.startswith('www.'):
+            hostname = hostname[4:]  # Remove first 4 characters ('www.')
+        
+        # ✅ Return just the domain name (lowercased)
+        return hostname.lower()
     except:
         return False
 
@@ -738,7 +745,6 @@ def call_apivoid_url(url):
             return None, apivoid_key
     return None, None
 
-
 def lookup_url(url):
     """Perform parallel URL reputation queries using VirusTotal, AbuseIPDB, and APIVoid."""
     with ThreadPoolExecutor(max_workers=3) as executor:
@@ -746,24 +752,53 @@ def lookup_url(url):
         abuseipdb_future = executor.submit(entryabuseipdburl, url)
         apivoid_future = executor.submit(call_apivoid_url, url)
 
+        # Safe result extraction with default values
         vt_data = vt_future.result() or {}
         abuseipdb_data = abuseipdb_future.result() or {}
-        apivoid_data, apivoid_key = apivoid_future.result() or ({}, None)
+        
+        # Handle apivoid_future result safely
+        apivoid_result = apivoid_future.result()
+        if apivoid_result and isinstance(apivoid_result, tuple) and len(apivoid_result) == 2:
+            apivoid_data, apivoid_key = apivoid_result
+            apivoid_data = apivoid_data or {}
+        else:
+            apivoid_data, apivoid_key = {}, None
 
     used_services.update(["VirusTotal", "AbuseIPDB", "APIVoid"])
 
+    # Extract data with safe defaults
     detections = vt_data.get("detections") or 0
     abuseipdb_confidence_score = abuseipdb_data.get("abuse_confidence_score")
     abuseipdb_report_count = abuseipdb_data.get("reports")
 
-    # Parse APIVoid-specific details, adjusting keys as per confirmed JSON structure
-    risk_score = apivoid_data.get("risk_score", {}).get("result")
-    blacklist_detections = apivoid_data.get("domain_blacklist", {}).get("detections", 0)
-    engine_count = apivoid_data.get("domain_blacklist", {}).get("engines_count", 0)
-    asn = apivoid_data.get("server_details", {}).get("asn", "")
-    isp = apivoid_data.get("server_details", {}).get("isp", "")
-    country = apivoid_data.get("server_details", {}).get("country_name", "")
-    server_ip = apivoid_data.get("server_details", {}).get("ip", "")
+    # Parse APIVoid-specific details safely (NEW STRUCTURE)
+    risk_score = None
+    blacklist_detections = 0
+    engine_count = 0
+    asn = ""
+    isp = ""
+    country = ""
+    server_ip = ""
+    
+    if apivoid_data and isinstance(apivoid_data, dict):
+        # Risk score
+        risk_score_data = apivoid_data.get("risk_score", {})
+        if isinstance(risk_score_data, dict):
+            risk_score = risk_score_data.get("result")
+        
+        # Blacklist data - NEW PATH: blacklists instead of domain_blacklist
+        blacklists = apivoid_data.get("blacklists", {})
+        if isinstance(blacklists, dict):
+            blacklist_detections = blacklists.get("detections", 0)
+            engine_count = blacklists.get("engines_count", 0)
+        
+        # Server details
+        server_details = apivoid_data.get("server_details", {})
+        if isinstance(server_details, dict):
+            asn = server_details.get("asn", "")
+            isp = server_details.get("isp", "")
+            country = server_details.get("country_name", "")
+            server_ip = server_details.get("ip", "")
 
     return {
         "type": "url",
@@ -771,8 +806,8 @@ def lookup_url(url):
         "hostname": urlparse(url if url.startswith("http") else f"http://{url}").hostname,
         "ip": server_ip or url,
         "asn": asn,
-        "isp": isp or "N/A",
-        "country": country or "N/A",
+        "isp": isp or "",
+        "country": country or "",
         "detections": detections,
         "abuseipdb_confidence_score": abuseipdb_confidence_score,
         "abuseipdb_report_count": abuseipdb_report_count,
@@ -785,12 +820,16 @@ def lookup_url(url):
             "asn": "APIVoid" if asn else None,
             "isp": "APIVoid" if isp else None,
             "country": "APIVoid" if country else None,
-            "detections": "VirusTotal URL"
+            "detections": "VirusTotal URL" if detections else None,  # ✅ Add condition
+            "apivoid_risk_score": "APIVoid" if risk_score is not None else None,  # ✅ Add this
+            "apivoid_blacklist_detections": "APIVoid" if blacklist_detections else None,  # ✅ Add this
+            "abuseipdb_confidence_score": "AbuseIPDB" if abuseipdb_confidence_score is not None else None,  # ✅ Add this
+            "abuseipdb_report_count": "AbuseIPDB" if abuseipdb_report_count is not None else None,  # ✅ Add this
         },
         "status_codes": {
-            "VirusTotal": vt_data.get("status_codes", {}).get("VirusTotal"),
-            "AbuseIPDB": abuseipdb_data.get("status_codes", {}).get("AbuseIPDB"),
-            "APIVoid": apivoid_data.get("status_code", 200)
+            "VirusTotal": vt_data.get("status_codes", {}).get("VirusTotal") if isinstance(vt_data.get("status_codes"), dict) else None,
+            "AbuseIPDB": abuseipdb_data.get("status_codes", {}).get("AbuseIPDB") if isinstance(abuseipdb_data.get("status_codes"), dict) else None,
+            "APIVoid": apivoid_data.get("status_code", 200) if apivoid_data else None
         },
     }
 
@@ -903,7 +942,7 @@ def handle_ip_lookup():
             apivoid_parts.append(f"APIVoid shows risk score of : {data['apivoid_risk_score']} .")
         #if data.get("apivoid_blacklist_detections") is not None and data.get("apivoid_blacklist_detections") > 0:
             #apivoid_parts.append(f" and detection count of : {data['apivoid_blacklist_detections']}.")
-
+            
         for field, label in [
             ("threat_actor", "threat actor"),
             ("campaign_name", "campaign name"),
@@ -930,11 +969,20 @@ def handle_ip_lookup():
         if entry_type == "url":
             categories = data.get("categories", [])
             category_str = f" Categories: {', '.join(categories)}." if categories else ""
+            
+            # Build country/ISP string conditionally
+            country_isp_str = ""
+            if data.get('country') or data.get('isp'):
+                country_isp_str = f" belonging to the country: {data.get('country') or 'N/A'} with ISP: {data.get('isp') or 'N/A'}."
+            
             summary = (
-                f"The URL: {data.get('entry')} has {max_detections} malicious detections."
+                f"The URL: {data.get('entry')} has {max_detections} malicious detections"
+                + country_isp_str
                 + apivoid_summary
-                + category_str + ioc_summary
+                + category_str
+                + ioc_summary
             )
+
         elif entry_type == "hash":
             threat_label_str = f" with threat labels: '{data.get('popular_threat_label')}'." if is_meaningful(data.get('popular_threat_label')) else ""
             size_str = f" The file size is {data.get('size', 'N/A')} bytes" if data.get('size') else ""
@@ -1331,47 +1379,68 @@ def handle_ip_lookup():
 
     safe_print("\n📋 Per Entry Summary:\n")
     for r in results:
-        entry_value = r.get("entry") or r.get("entry")
+        entry_value = r.get("entry")
         if not entry_value:
             continue
 
         service_sources = r.get("service_sources", {})
         
-        # Helper function to get source label
         def get_source(field_name):
             """Returns service source or 'database' as fallback"""
             return service_sources.get(field_name) or 'database'
         
-        main_parts = [
-            f"ASN: {r.get('asn','N/A')} (from {get_source('asn')})",
-            f"ISP: {r.get('isp','N/A')} (from {get_source('isp')})",
-            f"Country: {r.get('country','N/A')} (from {get_source('country')})",
-            f"Detections: {r.get('detections',0)} (from {get_source('detections')})",
-            f"APIVoid Risk Score: {r.get('apivoid_risk_score', '-')} (from {get_source('apivoid_risk_score')})",
-            f"APIVoid Blacklist Detections: {r.get('apivoid_blacklist_detections', '-')} (from {get_source('apivoid_blacklist_detections')})",
-            f"AbuseIPDB Confidence Score: {r.get('abuseipdb_confidence_score', '-')} (from {get_source('abuseipdb_confidence_score')})",
-            f"AbuseIPDB Report Count: {r.get('abuseipdb_report_count', '-')} (from {get_source('abuseipdb_report_count')})\n"
-        ]
-
+        # Build output lines
+        lines = [f"Entry: {entry_value}"]
+        
+        # Core fields with sources
+        if r.get('asn'):
+            lines.append(f"  ASN: {r.get('asn')} (from {get_source('asn')})")
+        if r.get('isp'):
+            lines.append(f"  ISP: {r.get('isp')} (from {get_source('isp')})")
+        if r.get('country'):
+            lines.append(f"  Country: {r.get('country')} (from {get_source('country')})")
+        
+        lines.append(f"  Detections: {r.get('detections', 0)} (from {get_source('detections')})")
+        
+        # Optional API-specific fields
+        if r.get('apivoid_risk_score') is not None:
+            lines.append(f"  APIVoid Risk Score: {r.get('apivoid_risk_score')}")
+        if r.get('apivoid_blacklist_detections') is not None:
+            lines.append(f"  APIVoid Blacklist Detections: {r.get('apivoid_blacklist_detections')}")
+        if r.get('abuseipdb_confidence_score') is not None:
+            lines.append(f"  AbuseIPDB Confidence Score: {r.get('abuseipdb_confidence_score')}")
+        if r.get('abuseipdb_report_count') is not None:
+            lines.append(f"  AbuseIPDB Report Count: {r.get('abuseipdb_report_count')}")
+        
+        # Status codes
         status_codes = r.get("status_codes", {}).copy()
-    
-        # Check if any data came from database
-        if any(get_source(field) == 'database' for field in ['asn', 'isp', 'country', 'detections', 
-                                                            'apivoid_risk_score', 'apivoid_blacklist_detections',
-                                                            'abuseipdb_confidence_score', 'abuseipdb_report_count']):
+        
+        # ✅ Check if ANY field has actual data from database (not None, not '-', not empty)
+        db_fields_with_data = []
+        for field in ['asn', 'isp', 'country', 'detections', 'apivoid_risk_score', 
+                    'apivoid_blacklist_detections', 'abuseipdb_confidence_score', 
+                    'abuseipdb_report_count']:
+            value = r.get(field)
+            source = get_source(field)
+            
+            # Check if field has real data AND source is database
+            if source == 'database' and value not in [None, '-', '', 0]:
+                db_fields_with_data.append(field)
+        
+        # Only add database status if we got actual data from database
+        if db_fields_with_data:
             status_codes['database'] = 200
         
-        status_parts = [f"{svc}={code}" for svc, code in status_codes.items()]
-
-        safe_print()
-        safe_print(
-            f"[{entry_value}]  "
-            + ";   ".join(main_parts)
-            + "\n|  StatusCodes: " + ", ".join(status_parts)
-        )
+        status_str = ", ".join(f"{svc}={code}" for svc, code in status_codes.items())
+        lines.append(f"  Status Codes: {status_str}")
+        
+        # Print all lines
+        safe_print("\n".join(lines))
         safe_print()
 
     safe_print("----------------------------\n")
+
+
 
     exhausted_messages = []
     if len(exhausted_vt_keys) == len(VT_KEYS) and len(VT_KEYS) > 0:
