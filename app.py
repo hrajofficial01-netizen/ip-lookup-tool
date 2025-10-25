@@ -899,7 +899,7 @@ def handle_ip_lookup():
 
         ioc_parts = []
         apivoid_parts = []
-        if data.get("apivoid_risk_score") is not None and apivoid_risk_score> 0:
+        if data.get("apivoid_risk_score") is not None and data.get("apivoid_risk_score")> 0:
             apivoid_parts.append(f"APIVoid shows risk score of : {data['apivoid_risk_score']} .")
         #if data.get("apivoid_blacklist_detections") is not None and data.get("apivoid_blacklist_detections") > 0:
             #apivoid_parts.append(f" and detection count of : {data['apivoid_blacklist_detections']}.")
