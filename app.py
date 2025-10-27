@@ -597,6 +597,21 @@ def get_ip_info(ip, vt_keys_exhausted=False):
         if blacklist_detections is not None:
             ip_info["service_sources"]["apivoid_blacklist_detections"] = "APIVoid"
 
+        # Prefer APIVoid ISP, fallback to VirusTotal ISP if not available or keys exhausted
+    apivoid_isp = None
+    if apivoid_result:
+        apivoid_isp = apivoid_result.get("information", {}).get("isp")
+        if apivoid_isp:
+            ip_info["isp"] = apivoid_isp
+            ip_info["service_sources"]["isp"] = "APIVoid"
+
+    # Fallback to VirusTotal if ISP wasn't set
+    if not ip_info["isp"] and vt_result:
+        vt_isp = vt_result.get("as_owner", "")
+        if vt_isp:
+            ip_info["isp"] = vt_isp
+            ip_info["service_sources"]["isp"] = "VirusTotal"
+
     return ip_info
 
 def parse_hash_enrichment(source_data):
