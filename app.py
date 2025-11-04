@@ -995,7 +995,7 @@ def handle_ip_lookup():
                 + country_isp_str
                 + apivoid_summary
                 + category_str
-                + ioc_summary
+                # + ioc_summary
             )
 
         elif entry_type == "hash":
@@ -1021,7 +1021,8 @@ def handle_ip_lookup():
 
             summary = (
                 f"The Hash: {data.get('entry')} has {max_detections} malicious detections"
-                + threat_label_str + size_str + file_name_str + ioc_summary#+ engines_str 
+                + threat_label_str + size_str + file_name_str 
+                # + ioc_summary#+ engines_str 
                 #+ first_seen_str + last_seen_str + reputation_str
             )
         else:  # Default to IP
@@ -1050,7 +1051,7 @@ def handle_ip_lookup():
                 + detection_info
                 + apivoid_summary
                 + abuseipdb_info
-                + ioc_summary
+                # + ioc_summary
             )
         return summary
 
