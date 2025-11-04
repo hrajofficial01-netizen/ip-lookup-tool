@@ -1,9 +1,19 @@
 function isValidIP(ip) {
-  try {
-    return ipaddr.isValid(ip);
-  } catch {
+  const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
+  
+  if (ipv4Regex.test(ip)) {
+    const parts = ip.split('.').map(Number);
+    if (parts.every(octet => octet >= 0 && octet <= 255)) {
+      return ipaddr.isValid(ip) && ipaddr.parse(ip).kind() === 'ipv4';
+    }
     return false;
   }
+  
+  if (ipaddr.isValid(ip)) {
+    return ipaddr.parse(ip).kind() === 'ipv6';
+  }
+  
+  return false;
 }
 
 function isValidHash(str) {
