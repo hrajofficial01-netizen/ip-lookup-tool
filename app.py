@@ -68,6 +68,7 @@ vt_key_lock = threading.Lock()
 exhausted_vt_keys = set()
 vt_keys_used = set()
 vt_keys_success = set()
+vt_404_encountered = set()
 # Add AbuseIPDB keys variables (similar structure)
 abuseipdb_key_index = 0
 abuseipdb_key_lock = threading.Lock()
@@ -414,7 +415,7 @@ def get_ip_info(ip, vt_keys_exhausted=False):
         "asn": "",
         "isp": "",
         "country": "",
-        "detections": 0,
+        "detections": -1,
         "used_service": "",
         "used_key": "",
         "status_codes": {},
@@ -431,7 +432,10 @@ def get_ip_info(ip, vt_keys_exhausted=False):
     }
 
     def call_virustotal():
+        vt_404_encountered= False
         for _ in range(len(VT_KEYS)):
+            if vt_404_encountered:
+                break
             vt_key = get_next_vt_key()
             if not vt_key:
                 return None, None
@@ -447,15 +451,19 @@ def get_ip_info(ip, vt_keys_exhausted=False):
                 vt_keys_used.add(vt_key)
                 if resp.status_code == 200:
                     data = resp.json().get("data", {}).get("attributes", {})
-                    return data, vt_key
+                    return data, vt_key, False
                 elif resp.status_code in (401, 429, 403):
                     exhausted_vt_keys.add(vt_key)
                     continue
+                elif resp.status_code ==404:
+                    vt_404_encountered= True
+                    continue
+                
             except Exception:
                 ip_info["status_codes"]["VirusTotal"] = "Error"
                 exhausted_vt_keys.add(vt_key)
-                return None, vt_key
-        return None, None
+                return None, vt_key,vt_404_encountered
+        return None, None,vt_404_encountered
 
     def call_abuseipdb():
         tried = set()
@@ -528,7 +536,7 @@ def get_ip_info(ip, vt_keys_exhausted=False):
         abuseipdb_future = executor.submit(call_abuseipdb)
         apivoid_future = executor.submit(call_apivoid)
 
-        vt_result, vt_key = vt_future.result()
+        vt_result, vt_key,vt_404_encountered = vt_future.result()
         abuseipdb_result, abuseipdb_key = abuseipdb_future.result()
         apivoid_result, apivoid_key, apivoid_status = apivoid_future.result()
 
@@ -667,7 +675,7 @@ def parse_hash_enrichment(source_data):
 def get_hash_info(hash_value, vt_keys_exhausted=False):
     hash_info = {
         "entry": hash_value,
-        "detections": 0,
+        "detections": -1,
         "used_service": "",
         "used_key": "",
         "status_codes": {},
@@ -676,7 +684,10 @@ def get_hash_info(hash_value, vt_keys_exhausted=False):
     }
 
     def call_virustotal():
+        vt_404_encountered= False
         for _ in range(len(VT_KEYS)):
+            if vt_404_encountered:
+                break
             vt_key = get_next_vt_key()
             if not vt_key:
                 return None, None
@@ -690,17 +701,25 @@ def get_hash_info(hash_value, vt_keys_exhausted=False):
                 if resp.status_code == 200:
                     data = resp.json().get("data", {}).get("attributes", {})
                     vt_keys_success.add(vt_key)
-                    return data, vt_key
+                    return data, vt_key,vt_404_encountered
+                elif resp.status_code ==404:
+                    vt_404_encountered= True
+                    
+                    continue
                 elif resp.status_code in (401, 429, 403):
                     exhausted_vt_keys.add(vt_key)
                     continue
             except Exception:
                 hash_info["status_codes"]["VirusTotal"] = "Error"
                 exhausted_vt_keys.add(vt_key)
-                return None, vt_key
-        return None, None
+                return None, vt_key, vt_404_encountered
+        return None, None, vt_404_encountered
 
-    vt_result, vt_key = call_virustotal()
+    vt_result, vt_key,vt_404_encountered = call_virustotal()
+    
+    
+    if vt_404_encountered:
+        hash_info["vt_404_encountered"] = True
     if vt_result:
         parsed = parse_hash_enrichment(vt_result)
         
@@ -717,6 +736,7 @@ def get_hash_info(hash_value, vt_keys_exhausted=False):
             "first_seen": parsed.get("first_seen"),
             "last_seen": parsed.get("last_seen"),
             "reputation": parsed.get("reputation"),
+            "vt_404_encountered": vt_404_encountered
         })
     return hash_info
 
@@ -782,14 +802,14 @@ def lookup_url(url):
     used_services.update(["VirusTotal", "AbuseIPDB", "APIVoid"])
 
     # Extract data with safe defaults
-    detections = vt_data.get("detections") or 0
+    detections = vt_data.get("detections") or None
     abuseipdb_confidence_score = abuseipdb_data.get("abuse_confidence_score")
     abuseipdb_report_count = abuseipdb_data.get("reports")
 
     # Parse APIVoid-specific details safely (NEW STRUCTURE)
     risk_score = None
-    blacklist_detections = 0
-    engine_count = 0
+    blacklist_detections = -1
+    engine_count = None
     asn = ""
     isp = ""
     country = ""
@@ -804,8 +824,8 @@ def lookup_url(url):
         # Blacklist data - NEW PATH: blacklists instead of domain_blacklist
         blacklists = apivoid_data.get("blacklists", {})
         if isinstance(blacklists, dict):
-            blacklist_detections = blacklists.get("detections", 0)
-            engine_count = blacklists.get("engines_count", 0)
+            blacklist_detections = blacklists.get("detections", -1)
+            engine_count = blacklists.get("engines_count", -1)
         
         # Server details
         server_details = apivoid_data.get("server_details", {})
@@ -936,7 +956,8 @@ def handle_ip_lookup():
             return ", ".join(f"{k}: {v}" for k, v in value.items())
         return str(value)
 
-    def build_summary(data, entry_type, vt_keys_exhausted=False):
+    def build_summary(data, entry_type, vt_keys_exhausted=False,vt_404_encountered=False):
+        
         def is_meaningful(value):
             if value is None:
                 return False
@@ -978,8 +999,8 @@ def handle_ip_lookup():
 
         vt_detections = data.get('detections', 0) if not vt_keys_exhausted else 0
         apivoid_detections = data.get('apivoid_blacklist_detections', 0) or 0
-
-        max_detections = max(vt_detections, apivoid_detections)
+        
+        max_detections = max(vt_detections, apivoid_detections) 
             
         if entry_type == "url":
             categories = data.get("categories", [])
@@ -990,13 +1011,19 @@ def handle_ip_lookup():
             if data.get('country') or data.get('isp'):
                 country_isp_str = f" belonging to the country: {data.get('country') or 'N/A'} with ISP: {data.get('isp') or 'N/A'}."
             
-            summary = (
-                f"The URL: {data.get('entry')} has {max_detections} malicious detections"
-                + country_isp_str
-                + apivoid_summary
-                + category_str
-                # + ioc_summary
-            )
+            if vt_404_encountered or vt_keys_exhausted:
+                country_isp_str=""
+                apivoid_summary=""
+                category_str=""
+                summary=""
+            else: 
+                summary = (
+                    f"The URL: {data.get('entry')} has {max_detections} malicious detections"
+                    + country_isp_str
+                    + apivoid_summary
+                    + category_str
+                    # + ioc_summary
+                )
 
         elif entry_type == "hash":
             threat_label_str = f" with threat labels: '{data.get('popular_threat_label')}'." if is_meaningful(data.get('popular_threat_label')) else ""
@@ -1018,13 +1045,22 @@ def handle_ip_lookup():
             # reputation_str = ""
             # if is_meaningful(data.get("reputation")):
             #     reputation_str = f" Reputation score: {data.get('reputation')}."
-
-            summary = (
-                f"The Hash: {data.get('entry')} has {max_detections} malicious detections"
-                + threat_label_str + size_str + file_name_str 
-                # + ioc_summary#+ engines_str 
-                #+ first_seen_str + last_seen_str + reputation_str
-            )
+            if vt_404_encountered or vt_keys_exhausted:
+                threat_label_str=""
+                size_str=""
+                file_name_str=""
+                # engines_str=""
+                # first_seen_str=""
+                # last_seen_str=""
+                # reputation_str=""
+                summary=""
+            else:
+                summary = (
+                    f"The Hash: {data.get('entry')} has {max_detections} malicious detections"
+                    + threat_label_str + size_str + file_name_str 
+                    # + ioc_summary#+ engines_str 
+                    #+ first_seen_str + last_seen_str + reputation_str
+                )
         else:  # Default to IP
             abuse_score = data.get('abuseipdb_confidence_score')
             abuse_report_count = data.get('abuseipdb_report_count') or '0'
@@ -1045,17 +1081,23 @@ def handle_ip_lookup():
                 f" with detection count of {max_detections}/95."
             ) if not vt_keys_exhausted else ""
 
-            summary = (
-                f"The IP: {data.get('entry')} belongs to ISP: {data.get('isp') or 'N/A'}, "
-                f"from Country: {data.get('country') or 'N/A'}"
-                + detection_info
-                + apivoid_summary
-                + abuseipdb_info
-                # + ioc_summary
-            )
+            if vt_404_encountered or vt_keys_exhausted:
+                detection_info=""
+                abuseipdb_info=""
+                apivoid_summary=""
+                summary=""
+            else:
+                summary = (
+                    f"The IP: {data.get('entry')} belongs to ISP: {data.get('isp') or 'N/A'}, "
+                    f"from Country: {data.get('country') or 'N/A'}"
+                    + detection_info
+                    + apivoid_summary
+                    + abuseipdb_info
+                    # + ioc_summary
+                )
         return summary
 
-    def resolve_entry(e, vt_keys_exhausted, client_name=client_name, timestamp_ist=None):
+    def resolve_entry(e, vt_keys_exhausted,vt_404_encountered, client_name=client_name, timestamp_ist=None):
         session = SessionLocal()
         data = {}
         try:
@@ -1069,7 +1111,7 @@ def handle_ip_lookup():
                     "isp": record.isp or "",
                     "asn": record.asn or "",
                     "country": record.country or "",
-                    "detections": record.detection_count or 0,
+                    "detections": record.detection_count or -1,
                     "apivoid_risk_score": getattr(record, "apivoid_risk_score", None),
                     "apivoid_blacklist_detections": getattr(record, "apivoid_blacklist_detections", None),
                     "abuseipdb_confidence_score": getattr(record, "abuseipdb_confidence_score", None),
@@ -1085,7 +1127,7 @@ def handle_ip_lookup():
             else:
                 if is_valid_public_ip(e):
                     with ThreadPoolExecutor(max_workers=3) as executor:
-                        vt_future = executor.submit(get_ip_info, e, vt_keys_exhausted=vt_keys_exhausted)
+                        vt_future = executor.submit(get_ip_info, e, vt_keys_exhausted=vt_keys_exhausted,vt_404_encountered=vt_404_encountered)
                         tie_future = executor.submit(get_ip_tie_data, e)
                         actor_info_future = executor.submit(get_actor_info_from_entry, e, "ip")
                         vt_result = vt_future.result() or {}
@@ -1180,8 +1222,10 @@ def handle_ip_lookup():
                     for key in THREAT_FIELDS:
                         vt_result[key] = serialize_field(enrichment.get(key))
                     vt_result["entry_type"] = "hash"
+                    vt_result["vt_404_encountered"] = vt_result.get("vt_404_encountered", False)
+                    print(f"Hash lookup for {e}, vt_404_encountered={vt_result['vt_404_encountered']}")
                     vt_result.setdefault("entry", e)
-                    vt_result["summary"] = build_summary(vt_result, "hash", vt_keys_exhausted=vt_keys_exhausted)
+                    vt_result["summary"] = build_summary(vt_result, "hash", vt_keys_exhausted=vt_keys_exhausted,vt_404_encountered=vt_404_encountered)
                     if vt_keys_exhausted:
                         vt_result["detections"] = None
                     data = vt_result
@@ -1195,7 +1239,7 @@ def handle_ip_lookup():
             data["detections"] = parsed.get("detections", data.get("detections", 0))
             data.update(parsed)
 
-        data["summary"] = build_summary(data, data.get("entry_type", "unknown"), vt_keys_exhausted=vt_keys_exhausted)
+        data["summary"] = build_summary(data, data.get("entry_type", "unknown"), vt_keys_exhausted=vt_keys_exhausted,vt_404_encountered=vt_404_encountered)
         if data.get("entry_type") == "url" and data.get("entry"):
             data["entry"] = data["entry"].lower()
         if not data.get("entry"):
@@ -1205,7 +1249,7 @@ def handle_ip_lookup():
 
     with ThreadPoolExecutor(max_workers=10) as executor_main:
         # First run with vt_keys_exhausted = False to perform all lookups and allow VT keys exhaustion updates
-        futures = [executor_main.submit(resolve_entry, e, False) for e in valid_entries]
+        futures = [executor_main.submit(resolve_entry, e, False,False) for e in valid_entries]
         results = [f.result() for f in futures]
 
     # Compute exhaustion status after all lookups complete
@@ -1213,7 +1257,7 @@ def handle_ip_lookup():
 
     # Rebuild summaries with correct exhaustion flag in place
     for r in results:
-        r["summary"] = build_summary(r, r.get("entry_type", "ip"), vt_keys_exhausted=vt_keys_exhausted)
+        r["summary"] = build_summary(r, r.get("entry_type", "ip"), vt_keys_exhausted=vt_keys_exhausted,vt_404_encountered=r.get("vt_404_encountered", False))
         if vt_keys_exhausted:
             r["detections"] = None
 
@@ -1257,7 +1301,7 @@ def handle_ip_lookup():
 
     for r in results:
         if r.get("used_service") != "Database":
-            if vt_keys_exhausted:
+            if vt_keys_exhausted or r.get("vt_404_encountered", False):
                 continue  # Skip updating DB for new entries if all VT keys exhausted
             upsert_lookup_data(r)
 
@@ -1294,20 +1338,8 @@ def handle_ip_lookup():
         # For IPs, get ISP and country to decide no-data
         isp_val, ctr_val = r.get("isp", ""), r.get("country", "")
         print(f" {r.get('entry_type')}, detections={det}")
-        if entry_type == "url":
-            # For URL: no detailed info other than detection, so only check if detection is missing or None
-            if det is None:
-                no_data_ips.append(r.get("ip") or r.get("entry"))
-        elif entry_type == "hash":
-            # For hash: detection missing or None means no data
-            
-            if det is None:
-                no_data_ips.append(r.get("entry"))
-        else:
-            # For IP: no other detail fields, so check if isp and country missing to capture no data condition
-            if not isp_val and not ctr_val:
-                no_data_ips.append(r.get("ip") or r.get("entry"))
-
+        if r.get("vt_404_encountered") or r.get("detections") == -1:
+            no_data_ips.append(r.get("ip") or r.get("entry"))
 
 
     summary_lines = []
