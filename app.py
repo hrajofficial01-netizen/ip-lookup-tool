@@ -293,7 +293,7 @@ def get_next_apivoid_key():
 
 def fetch_virustotal_url_data(url):
     result = {
-        "detections": None,
+        "detections": -1,
         "categories": [],
         "vt_key_used": None,
         "status_codes": {"VirusTotal": None},  # ✅ Initialize with correct key
@@ -607,10 +607,13 @@ def get_ip_info(ip, vt_keys_exhausted=False):
 
         # Prefer APIVoid ISP, fallback to VirusTotal ISP if not available or keys exhausted
     apivoid_isp = None
+    apivoid_country = None
     if apivoid_result:
         apivoid_isp = apivoid_result.get("information", {}).get("isp")
+        apivoid_country = apivoid_result.get("information", {}).get("country_name")
         if apivoid_isp:
             ip_info["isp"] = apivoid_isp
+            ip_info["country"]= apivoid_country
             ip_info["service_sources"]["isp"] = "APIVoid"
 
     # Fallback to VirusTotal if ISP wasn't set
@@ -690,7 +693,7 @@ def get_hash_info(hash_value, vt_keys_exhausted=False):
                 break
             vt_key = get_next_vt_key()
             if not vt_key:
-                return None, None
+                return None, None ,vt_key,vt_404_encountered
             used_services.add("VirusTotal")
             headers = {"x-apikey": vt_key, "Accept": "application/json"}
             try:
@@ -802,7 +805,7 @@ def lookup_url(url):
     used_services.update(["VirusTotal", "AbuseIPDB", "APIVoid"])
 
     # Extract data with safe defaults
-    detections = vt_data.get("detections") or None
+    detections = vt_data.get("detections") 
     abuseipdb_confidence_score = abuseipdb_data.get("abuse_confidence_score")
     abuseipdb_report_count = abuseipdb_data.get("reports")
 
@@ -1012,6 +1015,7 @@ def handle_ip_lookup():
                 country_isp_str = f" belonging to the country: {data.get('country') or 'N/A'} with ISP: {data.get('isp') or 'N/A'}."
             
             if vt_404_encountered or vt_keys_exhausted:
+                print(vt_keys_exhausted,vt_404_encountered)
                 country_isp_str=""
                 apivoid_summary=""
                 category_str=""
@@ -1111,7 +1115,7 @@ def handle_ip_lookup():
                     "isp": record.isp or "",
                     "asn": record.asn or "",
                     "country": record.country or "",
-                    "detections": record.detection_count or -1,
+                    "detections": record.detection_count,
                     "apivoid_risk_score": getattr(record, "apivoid_risk_score", None),
                     "apivoid_blacklist_detections": getattr(record, "apivoid_blacklist_detections", None),
                     "abuseipdb_confidence_score": getattr(record, "abuseipdb_confidence_score", None),
@@ -1127,7 +1131,7 @@ def handle_ip_lookup():
             else:
                 if is_valid_public_ip(e):
                     with ThreadPoolExecutor(max_workers=3) as executor:
-                        vt_future = executor.submit(get_ip_info, e, vt_keys_exhausted=vt_keys_exhausted,vt_404_encountered=vt_404_encountered)
+                        vt_future = executor.submit(get_ip_info, e, vt_keys_exhausted=vt_keys_exhausted)
                         tie_future = executor.submit(get_ip_tie_data, e)
                         actor_info_future = executor.submit(get_actor_info_from_entry, e, "ip")
                         vt_result = vt_future.result() or {}
@@ -1159,6 +1163,7 @@ def handle_ip_lookup():
                         enrichment_value = enrichment.get(key)
                         vt_result[key] = serialize_field(enrichment_value)
                     vt_result["entry_type"] = "ip"
+                    vt_result["vt_404_encountered"] = vt_result.get("vt_404_encountered", False)
                     if not vt_result.get("ip"):
                         vt_result["ip"] = e
                     if not vt_result.get("entry"):
@@ -1170,6 +1175,7 @@ def handle_ip_lookup():
                         tie_future = executor.submit(get_domain_tie_data, e)
                         actor_info_future = executor.submit(get_actor_info_from_entry, e, "url")
                         vt_result = vt_future.result() or {}
+                        vt_result["vt_404_encountered"] = vt_result.get("vt_404_encountered", False)
                         tie_result = tie_future.result()
                         actor_details = actor_info_future.result()
                     if tie_result and tie_result.get("data"):
@@ -1198,7 +1204,8 @@ def handle_ip_lookup():
                         enrichment_value = enrichment.get(key)
                         vt_result[key] = serialize_field(enrichment_value)
                     vt_result["entry_type"] = "url"
-                    vt_result["summary"] = build_summary(vt_result, "url", vt_keys_exhausted=vt_keys_exhausted)
+                    
+                    vt_result["summary"] = build_summary(vt_result, "url", vt_keys_exhausted=vt_keys_exhausted,vt_404_encountered=vt_404_encountered)
                     if vt_result.get("entry"):
                         vt_result["entry"] = vt_result["entry"].lower()
                     if not vt_result.get("ip"):
@@ -1270,7 +1277,7 @@ def handle_ip_lookup():
         country = r.get("country", "")
         detections = r.get("detections")
         if detections is None:
-            detections = "-"
+            detections = "-1"
         apivoid_risk_score = str(r.get("apivoid_risk_score", "-"))
         apivoid_blacklist_detections = str(r.get("apivoid_blacklist_detections", "-"))
         abuseipdb_confidence = str(r.get("abuseipdb_confidence_score", "-"))
