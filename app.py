@@ -252,9 +252,11 @@ async def fetch_vt(ip):
                               headers=headers) as resp:
             vt_keys_used.add(vt_key)
             if resp.status == 200:
+                response_json=await resp.json()
+                data= response_json.get("data", {}).get("attributes", {})
                 used_services.add("VirusTotal")
                 vt_keys_success.add(vt_key)
-                return await resp.json(), vt_key, False
+                return data, vt_key, False
             elif resp.status == 404:
                 return None, vt_key, True
             else:
@@ -274,7 +276,10 @@ async def fetch_abuseipdb(ip):
             if resp.status == 200:  # ADD THIS LINE
                 used_services.add("AbuseIPDB")  # ← ADD  
                 abuseipdb_keys_success.add(key)
-                return await resp.json()
+                resp.json=await resp.json()
+                data= resp.json.get("data", {})
+                return data
+            
         return None
 
 async def fetch_apivoid(ip):
@@ -462,7 +467,7 @@ def get_ip_info(ip, vt_keys_exhausted=False):
 
     # VirusTotal results processing (YOUR ORIGINAL LOGIC)
     if vt_result:
-        det_vt = 0 if vt_keys_exhausted else vt_result.get("last_analysis_stats", {}).get("malicious", 0) or 0
+        det_vt = -1 if vt_keys_exhausted else vt_result.get("last_analysis_stats", {}).get("malicious")
         ip_info["detections"] = det_vt
         asn_vt = vt_result.get("asn", "")
         isp_vt = vt_result.get("as_owner", "")
