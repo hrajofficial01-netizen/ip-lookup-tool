@@ -23,7 +23,6 @@ from iso3166 import countries
 from db import SessionLocal
 from models import LookupData, SearchLog
 from models import SearchLogNew
-from functools import lru_cache
 import time
 # GOOD (WORKS):
 import nest_asyncio
@@ -57,9 +56,7 @@ def safe_print(*args, **kwargs):
     if not is_shutting_down:
         print(*args, **kwargs)
 
-@lru_cache(maxsize=1000)
-def get_ip_info_cached(ip):
-    return get_ip_info(ip, vt_keys_exhausted=False)
+
 
 
 # API keys from environment
@@ -1114,7 +1111,7 @@ def handle_ip_lookup():
                 }
             else:
                 if is_valid_public_ip(e):
-                    vt_result = get_ip_info_cached(e) or {}
+                    vt_result = get_ip_info(e,vt_keys_exhausted) or {}
                     tie_result = get_ip_tie_data(e)
                     actor_details = get_actor_info_from_entry(e, "ip")
 
