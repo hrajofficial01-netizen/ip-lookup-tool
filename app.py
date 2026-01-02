@@ -1232,10 +1232,10 @@ def handle_ip_lookup():
         async with sem:  # Only 5 IOCs run at once
             return resolve_entry(e, False, False)
 
-    sem = asyncio.Semaphore(5)  # MAX 5 concurrent IOCs
+    sem = asyncio.Semaphore(20)  # MAX 5 concurrent IOCs
     results = asyncio.run(
         asyncio.gather(
-            *[lookup_ioc(e) for e in valid_entries[:10]]
+            *[lookup_ioc(e) for e in valid_entries[:100]]
         )
     )
 
