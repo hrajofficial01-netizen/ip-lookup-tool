@@ -858,7 +858,7 @@ def about():
     return render_template("about.html")
 
 @app.route("/get_ip_info", methods=["POST"])
-async def handle_ip_lookup():
+def handle_ip_lookup():
     start = time.time()
     data = request.json
     entries = data.get("ips", [])
@@ -1224,23 +1224,30 @@ async def handle_ip_lookup():
         return data
 
     async def lookup_ioc(e):
-        async with sem:  # Limits to 8 concurrent
-            return await asyncio.to_thread(resolve_entry, e, False, False)  # Offload sync DB/API
+        async with sem:
+            return resolve_entry(e, False, False)  # Your sync function
 
-    sem = asyncio.Semaphore(8)  # 8 IOCs × 4 APIs = 32 reqs max
+
+    sem = asyncio.Semaphore(10)
+
+    def process_chunk(chunk):
+        """Sync wrapper for chunk"""
+        async def _process():
+            tasks = [lookup_ioc(e) for e in chunk]
+            return await asyncio.gather(*tasks, return_exceptions=True)
+        return asyncio.run(_process())
 
     all_results = []
-    chunk_size = 20  # Safe RAM per chunk
+    chunk_size = 20
     for i in range(0, len(valid_entries), chunk_size):
-        chunk = valid_entries[i:i+chunk_size]
-        chunk_results = await asyncio.gather(
-            *[lookup_ioc(e) for e in chunk], 
-            return_exceptions=True
-        )
+        chunk = valid_entries[i:i + chunk_size]
+        safe_print(f"Processing chunk {i//chunk_size + 1}/{(len(valid_entries)-1)//chunk_size + 1}")
+        
+        chunk_results = process_chunk(chunk)
         all_results.extend([r for r in chunk_results if not isinstance(r, Exception)])
-        await asyncio.sleep(0.05)  # Yield
 
     results = all_results
+
 
     # Compute exhaustion status after all lookups complete
     vt_keys_exhausted = (len(exhausted_vt_keys) == len(VT_KEYS) and len(VT_KEYS) > 0)
