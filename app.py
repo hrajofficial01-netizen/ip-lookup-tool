@@ -858,7 +858,7 @@ def about():
     return render_template("about.html")
 
 @app.route("/get_ip_info", methods=["POST"])
-def handle_ip_lookup():
+async def handle_ip_lookup():
     start = time.time()
     data = request.json
     entries = data.get("ips", [])
@@ -897,8 +897,6 @@ def handle_ip_lookup():
                 # Optionally log skipped invalid entries here
                 continue
 
-            if len(valid_entries) >= 100:
-                break
 
     types = set()
     for e in valid_entries:
