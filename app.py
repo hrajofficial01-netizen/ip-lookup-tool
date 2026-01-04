@@ -1226,170 +1226,23 @@ def handle_ip_lookup():
         return data
 
     async def lookup_ioc(e):
-        """Single IOC lookup with concurrency limit"""
-        async with sem:  # Only 5 IOCs run at once
-            return resolve_entry(e, False, False)
+        async with sem:  # Limits to 8 concurrent
+            return await asyncio.to_thread(resolve_entry, e, False, False)  # Offload sync DB/API
 
-    sem = asyncio.Semaphore(50)  # MAX 5 concurrent IOCs
-    results = asyncio.run(
-        asyncio.gather(
-            *[lookup_ioc(e) for e in valid_entries]
-              #[:100]]
+    sem = asyncio.Semaphore(8)  # 8 IOCs × 4 APIs = 32 reqs max
+
+    all_results = []
+    chunk_size = 20  # Safe RAM per chunk
+    for i in range(0, len(valid_entries), chunk_size):
+        chunk = valid_entries[i:i+chunk_size]
+        chunk_results = await asyncio.gather(
+            *[lookup_ioc(e) for e in chunk], 
+            return_exceptions=True
         )
-    )
+        all_results.extend([r for r in chunk_results if not isinstance(r, Exception)])
+        await asyncio.sleep(0.05)  # Yield
 
-
-    def serialize_field(value):
-        if value is None:
-            return None
-        if isinstance(value, list):
-            return ", ".join(str(item) for item in value)
-        if isinstance(value, dict):
-            return ", ".join(f"{k}: {v}" for k, v in value.items())
-        return str(value)
-
-    def build_summary(data, entry_type, vt_keys_exhausted=False,vt_404_encountered=False):
-        
-        def is_meaningful(value):
-            if value is None:
-                return False
-            if isinstance(value, str):
-                return value.strip().lower() not in ("", "n/a", "-")
-            return True
-
-        # Merge details_json fields into main dict if present
-        details = data.get("details_json") or {}
-        if details:
-            for key in ["popular_threat_label", "size", "malicious_engines", "file_name", "first_seen", "last_seen", "reputation"]:
-                if key not in data or not is_meaningful(data.get(key)):
-                    data[key] = details.get(key)
-
-        ioc_parts = []
-        apivoid_parts = []
-        if data.get("apivoid_risk_score") is not None and data.get("apivoid_risk_score")> 0:
-            apivoid_parts.append(f"APIVoid shows risk score of : {data['apivoid_risk_score']} .")
-        #if data.get("apivoid_blacklist_detections") is not None and data.get("apivoid_blacklist_detections") > 0:
-            #apivoid_parts.append(f" and detection count of : {data['apivoid_blacklist_detections']}.")
-            
-        for field, label in [
-            ("threat_actor", "threat actor"),
-            ("campaign_name", "campaign name"),
-            ("malware_families", "malware family"),
-            ("country_origin", "country origin"),
-            ("target_sector", "target sector"),
-            ("threat_category", "threat category"),
-        ]:
-            val = data.get(field)
-            if is_meaningful(val):
-                ioc_parts.append(f"{label}: {val}")
-        ioc_summary = ""
-        if ioc_parts:
-            ioc_summary = f" IOC Details: The {'URL' if entry_type == 'url' else 'IP' if entry_type == 'ip' else 'Hash'} is associated with " + ", ".join(ioc_parts) + "."
-        apivoid_summary = ""
-        if apivoid_parts:
-            apivoid_summary = f" " + ", ".join(apivoid_parts) 
-
-        vt_detections = data.get('detections', 0) if not vt_keys_exhausted else 0
-        apivoid_detections = data.get('apivoid_blacklist_detections', 0) or 0
-        
-        max_detections = max(vt_detections, apivoid_detections) 
-            
-        if entry_type == "url":
-            categories = data.get("categories", [])
-            category_str = f" Categories: {', '.join(categories)}." if categories else ""
-            
-            # Build country/ISP string conditionally
-            country_isp_str = ""
-            if data.get('country') or data.get('isp'):
-                country_isp_str = f" belonging to the country: {data.get('country') or 'N/A'} with ISP: {data.get('isp') or 'N/A'}."
-            
-            if vt_404_encountered or vt_keys_exhausted:
-                print(vt_keys_exhausted,vt_404_encountered)
-                country_isp_str=""
-                apivoid_summary=""
-                category_str=""
-                summary=""
-            else: 
-                summary = (
-                    f"The URL: {data.get('entry')} has {max_detections} malicious detections"
-                    + country_isp_str
-                    + apivoid_summary
-                    + category_str
-                    # + ioc_summary
-                )
-
-        elif entry_type == "hash":
-            threat_label_str = f" with threat labels: '{data.get('popular_threat_label')}'." if is_meaningful(data.get('popular_threat_label')) else ""
-            size_str = f" The file size is {data.get('size', 'N/A')} bytes" if data.get('size') else ""
-            file_name_str = f" with commonly known file name as '{data.get('file_name')}'." if is_meaningful(data.get('file_name')) else ""
-
-            # malicious_engines = data.get('malicious_engines') or []
-            # if isinstance(malicious_engines, list) and malicious_engines:
-            #     engines_str = " Detected as malicious by antivirus engines: " + ", ".join(malicious_engines) + "."
-            # else:
-            #     engines_str = ""
-
-            # first_seen_str = ""
-            # if data.get("first_seen"):
-            #     first_seen_str = f" First seen: {datetime.fromtimestamp(data['first_seen']).strftime('%Y-%m-%d')}."
-            # last_seen_str = ""
-            # if data.get("last_seen"):
-            #     last_seen_str = f" Last seen: {datetime.fromtimestamp(data['last_seen']).strftime('%Y-%m-%d')}."
-            # reputation_str = ""
-            # if is_meaningful(data.get("reputation")):
-            #     reputation_str = f" Reputation score: {data.get('reputation')}."
-            if vt_404_encountered or vt_keys_exhausted:
-                threat_label_str=""
-                size_str=""
-                file_name_str=""
-                # engines_str=""
-                # first_seen_str=""
-                # last_seen_str=""
-                # reputation_str=""
-                summary=""
-            else:
-                summary = (
-                    f"The Hash: {data.get('entry')} has {max_detections} malicious detections"
-                    + threat_label_str + size_str + file_name_str 
-                    # + ioc_summary#+ engines_str 
-                    #+ first_seen_str + last_seen_str + reputation_str
-                )
-        else:  # Default to IP
-            abuse_score = data.get('abuseipdb_confidence_score')
-            abuse_report_count = data.get('abuseipdb_report_count') or '0'
-            abuseipdb_info = ""
-            try:
-                if abuse_score is not None and float(abuse_score) > 10:
-                    abuseipdb_info = (f" AbuseIPDB shows confidence of Abuse Score: {abuse_score}% "
-                                    f"and it has been reported {abuse_report_count} times.")
-            except (ValueError, TypeError):
-                abuseipdb_info = ""
-
-            vt_detections = data.get('detections', 0) if not vt_keys_exhausted else 0
-            apivoid_detections = data.get('apivoid_blacklist_detections', 0) or 0
-
-            max_detections = max(vt_detections, apivoid_detections)
-
-            detection_info = (
-                f" with detection count of {max_detections}/95."
-            ) if not vt_keys_exhausted else ""
-
-            if vt_404_encountered or vt_keys_exhausted:
-                detection_info=""
-                abuseipdb_info=""
-                apivoid_summary=""
-                summary=""
-            else:
-                summary = (
-                    f"The IP: {data.get('entry')} belongs to ISP: {data.get('isp') or 'N/A'}, "
-                    f"from Country: {data.get('country') or 'N/A'}"
-                    + detection_info
-                    + apivoid_summary
-                    + abuseipdb_info
-                    # + ioc_summary
-                )
-        return summary
-
+    results = all_results
 
     # Compute exhaustion status after all lookups complete
     vt_keys_exhausted = (len(exhausted_vt_keys) == len(VT_KEYS) and len(VT_KEYS) > 0)
@@ -1657,7 +1510,7 @@ def handle_ip_lookup():
     })
 
 @app.route("/download_excel", methods=["POST"])
-def download_excel():
+async def download_excel():
     data = request.get_json()
     table_data = data.get("table_data", [])
     summary_text = data.get("summary", "")
