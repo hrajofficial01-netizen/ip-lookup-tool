@@ -1228,7 +1228,7 @@ def handle_ip_lookup():
             return resolve_entry(e, False, False)  # Your sync function
 
 
-    sem = asyncio.Semaphore(10)
+    sem = asyncio.Semaphore(8)
 
     def process_chunk(chunk):
         """Sync wrapper for chunk"""
