@@ -5,10 +5,10 @@ def create_app():
     
     @app.route('/')
     def health():
-        return {"status": "IOC Lookup API v1.0", "healthy": True}
+        return {"status": "IOC Lookup GCP v1.0", "healthy": True}
     
     @app.route('/api/ioc/<path:indicator>')
     def ioc_lookup(indicator):
-        return {"ioc": indicator, "status": "lookup_pending"}
+        return {"ioc": indicator, "status": "GCP_lookup_pending"}
     
     return app
