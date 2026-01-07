@@ -51,15 +51,7 @@ app = Flask(__name__)
 
 @app.route("/")
 def index():
-    return "<h1>🔍 IP LOOKUP</h1><form method=POST action=/get_ip_info><input name=ip placeholder=8.8.8.8><button>CHECK</button></form>"
-
-@app.route("/debug")
-def debug():
-    return "<h1>🎉 FRONTEND LIVE!</h1><p>Flask + Nginx + Templates = 100% WORKING</p>"
-
-@app.route("/health")  # <- Separate health endpoint
-def health_check():
-    return {"healthy":true,"status":"IOC Lookup GCP v1.0"}
+    return render_template("index.html")
 
 import threading
 
