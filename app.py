@@ -51,24 +51,7 @@ app = Flask(__name__)
 
 @app.route("/")
 def index():
-    return '''
-<!DOCTYPE html>
-<html>
-<head><title>IOC Lookup GCP v1.0</title>
-<link rel="stylesheet" href="/static/style.css">
-</head>
-<body>
-    <h1>🚀 IOC REPUTATION LOOKUP LIVE!</h1>
-    <h2>Threat Intelligence Platform</h2>
-    <p>• VirusTotal + AbuseIPDB + APIVoid + TIE</p>
-    <p>• Nginx + Flask + Supervisor + GCP VM</p>
-    <p>• GitHub Actions CI/CD Auto-Deploy</p>
-    <hr>
-    <a href="/about">About</a> | 
-    <a href="/health">API Health</a>
-</body>
-</html>
-'''
+    return "<h1>🔍 IP LOOKUP</h1><form method=POST action=/get_ip_info><input name=ip placeholder=8.8.8.8><button>CHECK</button></form>"
 
 @app.route("/debug")
 def debug():
