@@ -55,6 +55,7 @@ def index():
 
 import threading
 
+
 is_shutting_down = False
 
 def safe_print(*args, **kwargs):
