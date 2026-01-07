@@ -49,6 +49,35 @@ load_dotenv()
 
 app = Flask(__name__)
 
+@app.route("/")
+def index():
+    return '''
+<!DOCTYPE html>
+<html>
+<head><title>IOC Lookup GCP v1.0</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <h1>🚀 IOC REPUTATION LOOKUP LIVE!</h1>
+    <h2>Threat Intelligence Platform</h2>
+    <p>• VirusTotal + AbuseIPDB + APIVoid + TIE</p>
+    <p>• Nginx + Flask + Supervisor + GCP VM</p>
+    <p>• GitHub Actions CI/CD Auto-Deploy</p>
+    <hr>
+    <a href="/about">About</a> | 
+    <a href="/health">API Health</a>
+</body>
+</html>
+'''
+
+@app.route("/debug")
+def debug():
+    return "<h1>🎉 FRONTEND LIVE!</h1><p>Flask + Nginx + Templates = 100% WORKING</p>"
+
+@app.route("/health")  # <- Separate health endpoint
+def health_check():
+    return {"healthy":true,"status":"IOC Lookup GCP v1.0"}
+
 import threading
 
 is_shutting_down = False
@@ -1605,34 +1634,6 @@ async def download_excel():
         download_name="IP_Info.xlsx"
     )
 
-@app.route("/")
-def index():
-    return '''
-<!DOCTYPE html>
-<html>
-<head><title>IOC Lookup GCP v1.0</title>
-<link rel="stylesheet" href="/static/style.css">
-</head>
-<body>
-    <h1>🚀 IOC REPUTATION LOOKUP LIVE!</h1>
-    <h2>Threat Intelligence Platform</h2>
-    <p>• VirusTotal + AbuseIPDB + APIVoid + TIE</p>
-    <p>• Nginx + Flask + Supervisor + GCP VM</p>
-    <p>• GitHub Actions CI/CD Auto-Deploy</p>
-    <hr>
-    <a href="/about">About</a> | 
-    <a href="/health">API Health</a>
-</body>
-</html>
-'''
-
-@app.route("/debug")
-def debug():
-    return "<h1>🎉 FRONTEND LIVE!</h1><p>Flask + Nginx + Templates = 100% WORKING</p>"
-
-@app.route("/health")  # <- Separate health endpoint
-def health_check():
-    return {"healthy":true,"status":"IOC Lookup GCP v1.0"}
 
 
 if __name__ == "__main__":
