@@ -1609,6 +1609,10 @@ async def download_excel():
 def index():
     return render_template("index.html")
 
+@app.route("/debug")
+def debug():
+    return "<h1>🎉 FRONTEND LIVE!</h1><p>Flask + Nginx + Templates = 100% WORKING</p>"
+
 @app.route("/health")  # <- Separate health endpoint
 def health_check():
     return {"healthy":true,"status":"IOC Lookup GCP v1.0"}
