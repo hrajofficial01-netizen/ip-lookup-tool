@@ -56,7 +56,7 @@ def handle_ip_lookup_logic_direct(data):
     request.json = data
     result = handle_ip_lookup()  # Your existing function
     request.json = original_json
-    return result.get_json() if hasattr(result, 'get_json') else result
+    return result.get_data(as_text=False) if hasattr(result, 'get_json') else result
 
 
 @app.route('/', methods=['GET'])
