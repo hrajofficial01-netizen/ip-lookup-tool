@@ -63,18 +63,15 @@ def handle_ip_lookup_logic_direct(data):
 def index():
     ioc = request.args.get('ioc', '').strip()
     if ioc:
-        # GET ?ioc=8.8.8.8 → POST /get_ip_info format
+        # GET ?ioc=8.8.8.8 → Your existing logic
         entries = [e.strip() for e in ioc.replace('\n', ',').split(',') if e.strip()]
         data = {"ips": entries, "client_name": "curl_client"}
         
-        # Bridge to your existing POST logic
-        original_json = getattr(request, 'json', None)
-        request.json = data
-        result = handle_ip_lookup()  # Your existing function
-        request.json = original_json
-        return result.get_data(as_text=False)
+        # USE YOUR EXISTING WRAPPER FUNCTION
+        return handle_ip_lookup_logic_direct(data)
     
     return render_template('index.html')
+
 
 
 import threading
