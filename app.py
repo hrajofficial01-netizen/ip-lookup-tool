@@ -63,14 +63,14 @@ def handle_ip_lookup_logic_direct(data):
 def index():
     ioc = request.args.get('ioc', '').strip()
     if ioc:
+        # JSON API for curl
         data = {
             "ips": [e.strip() for e in ioc.replace('\n', ',').split(',') if e.strip()], 
             "client_name": "curl"
         }
-        # Call your EXISTING /get_ip_info logic directly
-        result = handle_ip_lookup_logic_direct(data)
-        return jsonify(result)
-    return render_template('index.html')
+        return handle_ip_lookup_logic_direct(data)  # Your existing logic
+    return render_template('index.html')  # Web UI
+
 
 import threading
 
