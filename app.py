@@ -59,19 +59,34 @@ def handle_ip_lookup_logic_direct(data):
     return result.get_data(as_text=False) if hasattr(result, 'get_json') else result
 
 
+# @app.route('/', methods=['GET'])
+# def index():
+#     ioc = request.args.get('ioc', '').strip()
+#     if ioc:
+#         # GET ?ioc=8.8.8.8 → Your existing logic
+#         entries = [e.strip() for e in ioc.replace('\n', ',').split(',') if e.strip()]
+#         data = {"ips": entries, "client_name": "curl_client"}
+        
+#         # USE YOUR EXISTING WRAPPER FUNCTION
+#         return handle_ip_lookup_logic_direct(data)
+    
+#     return render_template('index.html')
+
 @app.route('/', methods=['GET'])
 def index():
     ioc = request.args.get('ioc', '').strip()
+    print(f"DEBUG: ioc='{ioc}'")  # Keep logging temporarily
+    
     if ioc:
-        # GET ?ioc=8.8.8.8 → Your existing logic
         entries = [e.strip() for e in ioc.replace('\n', ',').split(',') if e.strip()]
+        print(f"DEBUG: entries={entries}")
         data = {"ips": entries, "client_name": "curl_client"}
+        print(f"DEBUG: calling handle_ip_lookup_logic_direct")
         
-        # USE YOUR EXISTING WRAPPER FUNCTION
+        # FIXED: Direct call to your working function
         return handle_ip_lookup_logic_direct(data)
     
     return render_template('index.html')
-
 
 
 import threading
