@@ -37,3 +37,7 @@ google-cloud-secret-manager
 functions-framework
 aiohttp==3.9.5
 nest-asyncio==1.6.0
+gevent==24.11.0
+aiohttp==3.10.5
+flask-caching==2.3.0
+gunicorn==22.0.0
