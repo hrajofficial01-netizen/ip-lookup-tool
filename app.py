@@ -49,9 +49,28 @@ load_dotenv()
 
 app = Flask(__name__)
 
-@app.route("/")
+def handle_ip_lookup_logic_direct(data):
+    """Direct call wrapper for your existing logic"""
+    from flask import request
+    original_json = getattr(request, 'json', None)
+    request.json = data
+    result = handle_ip_lookup()  # Your existing function
+    request.json = original_json
+    return result.get_json() if hasattr(result, 'get_json') else result
+
+
+@app.route('/', methods=['GET'])
 def index():
-    return render_template("index.html")
+    ioc = request.args.get('ioc', '').strip()
+    if ioc:
+        data = {
+            "ips": [e.strip() for e in ioc.replace('\n', ',').split(',') if e.strip()], 
+            "client_name": "curl"
+        }
+        # Call your EXISTING /get_ip_info logic directly
+        result = handle_ip_lookup_logic_direct(data)
+        return jsonify(result)
+    return render_template('index.html')
 
 import threading
 
