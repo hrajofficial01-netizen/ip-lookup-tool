@@ -33,7 +33,6 @@ google-cloud-bigquery
 google-auth
 google-auth-oauthlib
 google-auth-httplib2
-psycopg2
 google-cloud-secret-manager
 functions-framework
 aiohttp==3.9.5
