@@ -1,34 +1,37 @@
-# Use a specific slim Python base image for lightweight builds
-FROM python:3.11-slim
+# Multi-stage build for Cloud Run IOC Lookup Service (with your startup.sh)
+FROM python:3.12-slim AS builder
 
-# Set working directory inside container
 WORKDIR /app
+COPY requirements.txt .
+RUN pip install --user --no-cache-dir --only-binary=all -r requirements.txt
 
-# Install build dependencies and clean apt cache in one step to keep image small
+# Runtime stage
+FROM python:3.12-slim
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    python3-dev \
-    libpq-dev \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy only requirements first to leverage build cache if code changes
-COPY requirements.txt .
-
-# Install Python dependencies (+ gevent for concurrency)
-RUN pip install --no-cache-dir gunicorn gevent aiohttp flask-caching -r requirements.txt
-
-# Copy application source code (last step to utilize caching)
+WORKDIR /app
+COPY --from=builder /root/.local /root/.local
 COPY . .
 
-# Fix your startup.sh permissions (your Windows git issue)
+# Make startup script executable
+COPY startup.sh .
 RUN chmod +x startup.sh
 
-# Expose Cloud Run REQUIRED port
-EXPOSE 8080
+ENV PATH=/root/.local/bin:$PATH \
+    PYTHONPATH=/app \
+    PYTHONUNBUFFERED=1
 
-# Ensure Python output is unbuffered (logs show immediately)
-ENV PYTHONUNBUFFERED=1
+# Create non-root user
+RUN useradd -m appuser && chown -R appuser:appuser /app
+USER appuser
 
-# Use startup.sh instead of direct gunicorn (DB migrations + error handling)
+EXPOSE $PORT
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:${PORT}/health || exit 1
+
+# Use your existing startup.sh
 CMD ["./startup.sh"]
