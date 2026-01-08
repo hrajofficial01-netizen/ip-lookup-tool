@@ -75,17 +75,11 @@ def handle_ip_lookup_logic_direct(data):
 @app.route('/', methods=['GET'])
 def index():
     ioc = request.args.get('ioc', '').strip()
-    print(f"DEBUG: ioc='{ioc}'")  # Keep logging temporarily
-    
     if ioc:
         entries = [e.strip() for e in ioc.replace('\n', ',').split(',') if e.strip()]
-        print(f"DEBUG: entries={entries}")
-        data = {"ips": entries, "client_name": "curl_client"}
-        print(f"DEBUG: calling handle_ip_lookup_logic_direct")
-        
-        # FIXED: Direct call to your working function
-        return handle_ip_lookup_logic_direct(data)
-    
+        data = {"ips": entries, "client_name": "api_client"}
+        result = handle_ip_lookup_logic_direct(data)
+        return jsonify(result)  # ← ADD THIS!
     return render_template('index.html')
 
 
