@@ -21,6 +21,7 @@ from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from iso3166 import countries
 from db import SessionLocal
+
 from models import LookupData, SearchLog
 from models import SearchLogNew
 import time
@@ -51,10 +52,6 @@ app = Flask(__name__)
 def health():
     return {"status": "ok"}
 
-@app.route('/', defaults={'path': ''})
-@app.route('/<path:path>')
-def catch_all(path):
-    return {"error": "IOC Lookup API - use /health or /lookup endpoints"}
 
 def handle_ip_lookup_logic_direct(data):
     """Direct call wrapper for your existing logic"""
@@ -78,7 +75,7 @@ def handle_ip_lookup_logic_direct(data):
 #         return handle_ip_lookup_logic_direct(data)
     
 #     return render_template('index.html')
-
+@app.route('/', defaults={'path': ''})  # ← ADD THIS LINE
 @app.route('/', methods=['GET'])
 def index():
     ioc = request.args.get('ioc', '').strip()
@@ -89,6 +86,9 @@ def index():
         return jsonify(result)  # ← ADD THIS!
     return render_template('index.html')
 
+@app.route('/<path:path>')
+def catch_all(path):
+    return {"error": "IOC Lookup API - use /health or /lookup endpoints"}
 
 import threading
 
@@ -1646,8 +1646,12 @@ async def download_excel():
         as_attachment=True,
         download_name="IP_Info.xlsx"
     )
-
-
-
+    
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=False)  # Adjust port and debug as needed
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
+
+
+
+# if __name__ == "__main__":
+#     app.run(host="0.0.0.0", port=5000, debug=False)  # Adjust port and debug as needed

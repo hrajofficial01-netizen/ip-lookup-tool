@@ -1,30 +1,56 @@
-# db.py
+# # db.py
 
+# import os
+# from sqlalchemy import create_engine
+# from sqlalchemy.orm import sessionmaker, declarative_base
+# from dotenv import load_dotenv
+# import urllib.parse
+
+# # load .env from project root
+# load_dotenv()
+
+# DB_USER     = os.getenv("DB_USER", "postgres")
+# DB_PASSWORD = os.getenv("DB_PASSWORD", "")
+# DB_HOST     = os.getenv("DB_HOST", "localhost")
+# DB_PORT     = os.getenv("DB_PORT", "5432")
+# DB_NAME     = os.getenv("DB_NAME", "")
+
+# if not all([DB_USER, DB_PASSWORD, DB_NAME]):
+#     raise RuntimeError("Please set DB_USER, DB_PASSWORD and DB_NAME in your .env")
+
+# password_escaped = urllib.parse.quote_plus(DB_PASSWORD)
+
+# DATABASE_URL = os.getenv("DATABASE_URL")
+# if not DATABASE_URL:
+#     raise RuntimeError("Please set DATABASE_URL as environment variable")
+
+# # echo=True will log all SQL — set to False in production
+# engine       = create_engine(DATABASE_URL, echo=False, future=True)
+# SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+# Base         = declarative_base()
+
+# db.py
 import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
-from dotenv import load_dotenv
 import urllib.parse
 
-# load .env from project root
-load_dotenv()
-
+# CLOUD RUN: Use env vars DIRECTLY (no .env files)
 DB_USER     = os.getenv("DB_USER", "postgres")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "")
-DB_HOST     = os.getenv("DB_HOST", "localhost")
+DB_HOST     = os.getenv("DB_HOST", "/cloudsql/ioc-lookup-483517:asia-south2:iplookupdb")
 DB_PORT     = os.getenv("DB_PORT", "5432")
-DB_NAME     = os.getenv("DB_NAME", "")
+DB_NAME     = os.getenv("DB_NAME", "iplookup_db")
 
-if not all([DB_USER, DB_PASSWORD, DB_NAME]):
-    raise RuntimeError("Please set DB_USER, DB_PASSWORD and DB_NAME in your .env")
-
+# Build Cloud SQL connection string
 password_escaped = urllib.parse.quote_plus(DB_PASSWORD)
+if not os.getenv("DATABASE_URL"):
+    DATABASE_URL = f"postgresql://{DB_USER}:{password_escaped}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+else:
+    DATABASE_URL = os.getenv("DATABASE_URL")
 
-DATABASE_URL = os.getenv("DATABASE_URL")
-if not DATABASE_URL:
-    raise RuntimeError("Please set DATABASE_URL as environment variable")
+print(f"Using DATABASE_URL: {DATABASE_URL[:50]}...")  # Debug log
 
-# echo=True will log all SQL — set to False in production
 engine       = create_engine(DATABASE_URL, echo=False, future=True)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 Base         = declarative_base()
