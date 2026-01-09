@@ -44,10 +44,17 @@ def keep_alive():
 # Start the keep_alive function in a daemon thread so it won't block app shutdown
 threading.Thread(target=keep_alive, daemon=True).start()
 
-# Load environment variables
-load_dotenv()
-
 app = Flask(__name__)
+
+# ← ADD THIS MINIMAL HEALTH CHECK:
+@app.route('/health')
+def health():
+    return {"status": "ok"}
+
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def catch_all(path):
+    return {"error": "IOC Lookup API - use /health or /lookup endpoints"}
 
 def handle_ip_lookup_logic_direct(data):
     """Direct call wrapper for your existing logic"""
