@@ -1,17 +1,16 @@
 FROM python:3.12-slim AS builder
 WORKDIR /app
 COPY requirements.txt .
-# Remove --only-binary=all to allow gevent compilation
 RUN pip install --user --no-cache-dir -r requirements.txt
 
 FROM python:3.12-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc g++ libevent-dev && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-COPY --from=builder /root/.local /root/.local
+COPY --from=builder /root/.local /usr/local          
 COPY . .
 RUN chmod +x startup.sh
-ENV PATH=/root/.local/bin:$PATH PYTHONPATH=/app PYTHONUNBUFFERED=1
+ENV PATH=/usr/local/bin:$PATH PYTHONPATH=/app PYTHONUNBUFFERED=1  
 RUN useradd -m appuser && chown -R appuser:appuser /app
 USER appuser
 EXPOSE $PORT
