@@ -226,7 +226,7 @@ async function fetchIPData() {
 
       let cells = [
         inputValue, isp, country, detections,
-        apivoidRiskScore || "-", apivoidBlacklistDetections || "-",
+        apivoidRiskScore , apivoidBlacklistDetections ,
         formatField(abuseipdbConfidenceRaw), formatField(abuseipdbReportCountRaw),
         formatField(threatActorRaw), formatField(countryOriginRaw),
         formatField(targetSectorRaw), formatField(threatCategoryRaw),
