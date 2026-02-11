@@ -407,6 +407,6 @@ def download_excel():
         download_name="IOC_Report.xlsx",
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
-
+    
 if __name__ == "__main__":
     app.run(debug=True, threaded=True)
