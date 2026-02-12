@@ -1,5 +1,6 @@
 import os
 import re
+from sys import exception
 import time
 import base64
 import ipaddress
@@ -105,7 +106,8 @@ def upsert_lookup_data(result):
         db.add(new)
         db.commit()
 
-    except Exception:
+    except Exception as e:
+        print(f"Error during DB upsert for {entry}: {str(e)}")
         db.rollback()
         raise
     finally:
@@ -126,7 +128,8 @@ def insert_search_event(entry, client_name, timestamp, entry_type=None):
         )
         db.add(event)
         db.commit()
-    except Exception:
+    except Exception as e:
+        print(f"Error inserting search event for {entry}: {str(e)}")    
         db.rollback()
     finally:
         db.close()
@@ -155,8 +158,9 @@ def upsert_search_log(entry, client_name, timestamp, entry_type=None):
 
         db.commit()
 
-    except IntegrityError:
+    except IntegrityError as e:
         db.rollback()
+        print(f"IntegrityError during upsert_search_log for {entry}: {str(e)}") 
     finally:
         db.close()
 
@@ -300,6 +304,7 @@ def vt_lookup(entry):
 
             r = session_http.get(url, headers=headers, timeout=15)
             if r.status_code != 200:
+                print(f"VT lookup failed for {entry} with status {r.status_code}")
                 return None
 
             attr = r.json().get("data", {}).get("attributes", {})
@@ -321,7 +326,8 @@ def vt_lookup(entry):
             
             return result
         
-        except:
+        except Exception as e:
+            print (f"Error during VT lookup for {entry}: {str(e)}")
             return None
 
 # =========================
@@ -349,6 +355,7 @@ def apivoid_lookup(entry):
 
             r = session_http.post(endpoint, headers=headers, json=payload, timeout=15)
             if r.status_code != 200:
+                print(f"APIVoid lookup failed for {entry} with status {r.status_code}")
                 return None
 
             data = r.json()
@@ -359,7 +366,8 @@ def apivoid_lookup(entry):
                 "country": data.get("information", {}).get("country_name"),
                 "isp": data.get("information", {}).get("isp")
             }
-        except:
+        except Exception as e:
+            print(f"Error during APIVoid lookup for {entry}: {str(e)}")
             return None
 
 # =========================
@@ -384,10 +392,12 @@ def abuse_lookup(ip):
             )
 
             if r.status_code != 200:
+                print(f"AbuseIPDB lookup failed for {ip} with status {r.status_code}")
                 return None
 
             return r.json().get("data")
-        except:
+        except Exception as e:
+            print(f"Error during AbuseIPDB lookup for {ip}: {str(e)}")
             return None
 
 # =========================
