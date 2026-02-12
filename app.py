@@ -1,6 +1,5 @@
 import os
 import re
-from sys import exception
 import time
 import base64
 import ipaddress
@@ -8,7 +7,7 @@ import requests
 from io import BytesIO
 from datetime import datetime
 import pytz
-
+import traceback
 from flask import Flask, request, jsonify, send_file, render_template
 from openpyxl import Workbook
 from iso3166 import countries
@@ -302,7 +301,7 @@ def vt_lookup(entry):
                 encoded = base64.urlsafe_b64encode(normalize_url(entry).encode()).decode().strip("=")
                 url = f"https://www.virustotal.com/api/v3/urls/{encoded}"
 
-            r = session_http.get(url, headers=headers, timeout=15)
+            r = requests.get(url, headers=headers, timeout=15)
             if r.status_code != 200:
                 print(f"VT lookup failed for {entry} with status {r.status_code}")
                 return None
@@ -327,8 +326,9 @@ def vt_lookup(entry):
             return result
         
         except Exception as e:
-            print (f"Error during VT lookup for {entry}: {str(e)}")
-            return None
+                print(f"Error during VT lookup for {entry}")
+                traceback.print_exc()
+                return None
 
 # =========================
 # APIVOID
@@ -353,7 +353,7 @@ def apivoid_lookup(entry):
                 endpoint = "https://api.apivoid.com/v2/domain-reputation"
                 payload = {"host": urlparse(normalize_url(entry)).hostname}
 
-            r = session_http.post(endpoint, headers=headers, json=payload, timeout=15)
+            r = requests.post(endpoint, headers=headers, json=payload, timeout=15)
             if r.status_code != 200:
                 print(f"APIVoid lookup failed for {entry} with status {r.status_code}")
                 return None
@@ -367,8 +367,9 @@ def apivoid_lookup(entry):
                 "isp": data.get("information", {}).get("isp")
             }
         except Exception as e:
-            print(f"Error during APIVoid lookup for {entry}: {str(e)}")
-            return None
+                print(f"Error during APIVoid lookup for {entry}")
+                traceback.print_exc()
+                return None
 
 # =========================
 # ABUSEIPDB
@@ -384,7 +385,7 @@ def abuse_lookup(ip):
             return None
 
         try:
-            r = session_http.get(
+            r = requests.get(
                 "https://api.abuseipdb.com/api/v2/check",
                 headers={"Key": key, "Accept": "application/json"},
                 params={"ipAddress": ip, "maxAgeInDays": 90},
@@ -397,8 +398,9 @@ def abuse_lookup(ip):
 
             return r.json().get("data")
         except Exception as e:
-            print(f"Error during AbuseIPDB lookup for {ip}: {str(e)}")
-            return None
+                print(f"Error during AbuseIPDB lookup for {ip}")
+                traceback.print_exc()
+                return None
 
 # =========================
 # SUMMARY
