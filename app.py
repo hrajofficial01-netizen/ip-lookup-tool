@@ -417,10 +417,10 @@ def build_summary(entry, etype, isp, country, detections, vt=None, apv=None, abv
         return sentence
     if etype == "HASH":
         hash_details = hash_details or (vt if vt else {})
-        sentence = f"The hash <b>{entry}</b> has <b>{detections}</b> malicious detections." if detections>1 else f" has <b>{detections}</b> malicious detection."
+        sentence = f"The hash <b>{entry}</b> has <b>{detections}</b> malicious detections." if detections>=0 else f"The hash <b>{entry}</b> was not found in any database."
         if hash_details:
             sentence += f" It is identified as <b>{hash_details.get('file_type') }</b> with name <b>{hash_details.get('file_name')}</b> and size {hash_details.get('file_size')} bytes"
-            if hash_details.get('popular_threat_label'): sentence += f" and associated with threat label: {hash_details.get('popular_threat_label')}"
+            if hash_details.get('popular_threat_label') or hash_details.get('threat_labels'): sentence += f" and associated with threat label: {hash_details.get('popular_threat_label') or hash_details.get('threat_labels')}"
         return sentence + "."
 # =========================
 # ROUTES
@@ -441,7 +441,8 @@ def get_ip_info():
 
     if not data or "ips" not in data:
         return jsonify({"error": "Invalid JSON"}), 400
-
+    
+    no_data_ips = []
     client_name = data.get("client_name", "Unknown")
     entries = list(set(data.get("ips", [])))[:IOC_MAX]
 
@@ -475,6 +476,9 @@ def get_ip_info():
         vt = vt_lookup(entry)
         apv = apivoid_lookup(entry)
         abv = abuse_lookup(entry)
+        
+        if not any([vt, apv, abv]):
+            no_data_ips.append(entry)
 
         for s, val in [("VirusTotal", vt), ("APIVoid", apv), ("AbuseIPDB", abv)]:
             if val and s not in services_used: services_used.add(s)
@@ -486,18 +490,19 @@ def get_ip_info():
         isp = (apv.get("isp") if apv else None) or (vt.get("isp") if vt else "-")
         country = (apv.get("country") if apv else None) or (vt.get("country") if vt else "-")
 
-        upsert_lookup_data({
-            "entry": entry,
-            "entry_type": etype,
-            "isp": isp,
-            "country": country,
-            "detections": detections,
-            "apivoid_risk_score": apv.get("riskscore") if apv else None,
-            "apivoid_blacklist_detections": apv_det,
-            "abuseipdb_confidence_score": abv.get("abuseConfidenceScore") if abv else None,
-            "abuseipdb_report_count": abv.get("totalReports") if abv else None,
-            "details_json": vt.get("json_response") if vt else None
-        })
+        if vt_det != -1:
+            upsert_lookup_data({
+                "entry": entry,
+                "entry_type": etype,
+                "isp": isp,
+                "country": country,
+                "detections": detections,
+                "apivoid_risk_score": apv.get("riskscore") if apv else None,
+                "apivoid_blacklist_detections": apv_det,
+                "abuseipdb_confidence_score": abv.get("abuseConfidenceScore") if abv else None,
+                "abuseipdb_report_count": abv.get("totalReports") if abv else None,
+                "details_json": vt.get("json_response") if vt else None
+            })
 
         summary = build_summary(entry, etype, isp, country, detections, vt, apv, abv,record=None)
 
@@ -531,7 +536,8 @@ def get_ip_info():
         "raw_table": raw_table,
         "summary": "<br><br>".join(summaries),
         "elapsed": round(time.time() - start, 2),
-        "services_used": list(services_used)
+        "services_used": list(services_used),
+        "no_data_ips": no_data_ips
     })
 
 @app.route("/download_excel", methods=["POST"])
