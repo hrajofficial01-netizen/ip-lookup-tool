@@ -50,9 +50,6 @@ apivoid_index = 0
 abuse_index = 0
 exhausted_messages = ""
 
-session_http = requests.Session()
-adapter = requests.adapters.HTTPAdapter(pool_connections=50, pool_maxsize=50)
-session_http.mount("https://", adapter)
 
 country_cache = {}
 
