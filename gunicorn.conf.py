@@ -1,4 +1,5 @@
-bind = "127.0.0.1:8000"
-workers = 3
-worker_class = "gevent"
+workers = 2
+threads = 2
+worker_class = "gthread"
 timeout = 120
+bind = "0.0.0.0:8000"
