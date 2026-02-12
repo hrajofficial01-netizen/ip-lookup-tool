@@ -552,6 +552,18 @@ def get_ip_info():
         "no_data_ips": no_data_ips
     })
 
+@app.route("/test_ssl")
+def test_ssl():
+    import ssl
+    import sys
+
+    return f"""
+    ssl module file: {ssl.__file__}
+    <br>
+    python version: {sys.version}
+    """
+
+
 @app.route("/download_excel", methods=["POST"])
 def download_excel():
     table = request.json.get("table_data", [])
