@@ -1,33 +1,33 @@
-# # db.py
+# db.py
 
-# import os
-# from sqlalchemy import create_engine
-# from sqlalchemy.orm import sessionmaker, declarative_base
-# from dotenv import load_dotenv
-# import urllib.parse
+import os
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, declarative_base
+from dotenv import load_dotenv
+import urllib.parse
 
-# # load .env from project root
-# load_dotenv()
+# load .env from project root
+load_dotenv()
 
-# DB_USER     = os.getenv("DB_USER", "postgres")
-# DB_PASSWORD = os.getenv("DB_PASSWORD", "")
-# DB_HOST     = os.getenv("DB_HOST", "localhost")
-# DB_PORT     = os.getenv("DB_PORT", "5432")
-# DB_NAME     = os.getenv("DB_NAME", "")
+DB_USER     = os.getenv("DB_USER", "postgres")
+DB_PASSWORD = os.getenv("DB_PASSWORD", "")
+DB_HOST     = os.getenv("DB_HOST", "localhost")
+DB_PORT     = os.getenv("DB_PORT", "5432")
+DB_NAME     = os.getenv("DB_NAME", "")
 
-# if not all([DB_USER, DB_PASSWORD, DB_NAME]):
-#     raise RuntimeError("Please set DB_USER, DB_PASSWORD and DB_NAME in your .env")
+if not all([DB_USER, DB_PASSWORD, DB_NAME]):
+    raise RuntimeError("Please set DB_USER, DB_PASSWORD and DB_NAME in your .env")
 
-# password_escaped = urllib.parse.quote_plus(DB_PASSWORD)
+password_escaped = urllib.parse.quote_plus(DB_PASSWORD)
 
-# DATABASE_URL = os.getenv("DATABASE_URL")
-# if not DATABASE_URL:
-#     raise RuntimeError("Please set DATABASE_URL as environment variable")
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError("Please set DATABASE_URL as environment variable")
 
-# # echo=True will log all SQL — set to False in production
-# engine       = create_engine(DATABASE_URL, echo=False, future=True)
-# SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
-# Base         = declarative_base()
+# echo=True will log all SQL — set to False in production
+engine       = create_engine(DATABASE_URL, echo=False, future=True)
+SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+Base         = declarative_base()
 
 # db.py
 import os

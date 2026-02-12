@@ -209,11 +209,13 @@ async function fetchIPData() {
       ] = row;
 
 
+      
       function formatField(field) {
-        if (!field) return "-";
-        if (Array.isArray(field)) return field.join(", ");
+        if (field === null || field === undefined || field === "") return "-";
+        if (Array.isArray(field)) return field.length ? field.join(", ") : "-";
         return field.toString();
       }
+
 
       const threatActor = formatField(threatActorRaw);
       const campaignName = formatField(campaignNameRaw);
