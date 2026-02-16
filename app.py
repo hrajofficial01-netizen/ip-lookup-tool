@@ -409,29 +409,35 @@ def build_summary(entry, etype, isp, country, detections, vt=None, apv=None, abv
         isp = record.isp or isp
         country = record.country or country
         detections = record.detection_count or detections
-        hash_details= parse_hash_enrichment(record.details_json) if record.details_json else None
+        hash_details = parse_hash_enrichment(record.details_json) if record.details_json else None
         apv = {"riskscore": record.apivoid_risk_score, "detections": record.apivoid_blacklist_detections} if record.apivoid_risk_score is not None else vt
         abv = {"abuseConfidenceScore": record.abuseipdb_confidence_score, "totalReports": record.abuseipdb_report_count} if record.abuseipdb_confidence_score is not None else abv
+
     if etype == "IP":
-        sentence = f"The IP <b>{entry}</b> belongs to ISP <b>{isp}</b> from country <b>{country}</b> with "
-        sentence += f"<b>{detections}</b> malicious detections." if detections>1 else f"<b>{detections}</b> malicious detection."
-        sentence += f" ApiVoid shows risk score of {int(apv.get('riskscore'))}." if apv and apv.get('riskscore',0)>20 else ""
-        sentence += f" AbuseIPDB reports an abuse confidence score of {abv.get('abuseConfidenceScore')}% with {abv.get('totalReports')} total reports." if abv and abv.get("abuseConfidenceScore",0)>10 else ""
+        sentence = f"The IP {entry} belongs to ISP {isp} from country {country} with "
+        sentence += f"{detections} malicious detections." if detections > 1 else f"{detections} malicious detection."
+        sentence += f" ApiVoid shows risk score of {int(apv.get('riskscore'))}." if apv and apv.get('riskscore', 0) > 20 else ""
+        sentence += f" AbuseIPDB reports an abuse confidence score of {abv.get('abuseConfidenceScore')}% with {abv.get('totalReports')} total reports." if abv and abv.get("abuseConfidenceScore", 0) > 10 else ""
         return sentence
+
     if etype == "URL":
-        sentence = f"The URL <b>{entry}</b>"
-        if country and isp: sentence += f" belongs to the ISP <b>{isp}</b> from country <b>{country}</b> and "
-        sentence += f" has <b>{detections}</b> malicious detections." if detections>1 else f" and has <b>{detections}</b> malicious detection."
-        sentence += f" ApiVoid shows risk score of {int(apv.get('riskscore'))}." if apv and apv.get('riskscore',0)>20 else ""
+        sentence = f"The URL {entry}"
+        if country and isp:
+            sentence += f" belongs to the ISP {isp} from country {country} and "
+        sentence += f" has {detections} malicious detections." if detections > 1 else f" and has {detections} malicious detection."
+        sentence += f" ApiVoid shows risk score of {int(apv.get('riskscore'))}." if apv and apv.get('riskscore', 0) > 20 else ""
         return sentence
+
     if etype == "HASH":
         hash_details = hash_details or (vt if vt else {})
-        sentence = f"The hash <b>{entry}</b> has <b>{detections}</b> malicious detections." if detections>=0 else f"The hash <b>{entry}</b> was not found in any database."
+        sentence = f"The hash {entry} has {detections} malicious detections." if detections >= 0 else f"The hash {entry} was not found in any database."
         if hash_details:
-            sentence += f" It is identified as <b>{hash_details.get('file_type') }</b> with name <b>{hash_details.get('file_name')}</b> and size {hash_details.get('file_size')} bytes"
-            if hash_details.get('popular_threat_label') or hash_details.get('threat_labels'): sentence += f" and associated with threat label: {hash_details.get('popular_threat_label') or hash_details.get('threat_labels')}"
+            sentence += f" It is identified as {hash_details.get('file_type')} with name {hash_details.get('file_name')} and size {hash_details.get('file_size')} bytes"
+            if hash_details.get('popular_threat_label') or hash_details.get('threat_labels'):
+                sentence += f" and associated with threat label: {hash_details.get('popular_threat_label') or hash_details.get('threat_labels')}"
         return sentence + "."
 # =========================
+
 # ROUTES
 # =========================
 
@@ -563,31 +569,66 @@ def test_ssl():
 
 @app.route("/download_excel", methods=["POST"])
 def download_excel():
-    table = request.json.get("table_data", [])
+    data = request.get_json()
+    table_data = data.get("table_data", [])
+    summary_text = data.get("summary", "")
+    column_label = data.get("column_label", "IP")
+
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+    import io
+    from flask import send_file
+
     wb = Workbook()
     ws = wb.active
-    ws.title = "Results"
+    ws.title = "Lookup Data"
 
-    ws.append([
-        "IOC","ISP","Country","Detections",
-        "APIVoid Risk","APIVoid Blacklist",
-        "Abuse Confidence","Abuse Reports",
-        "","","","","",""
-    ])
+    headers = [
+        column_label, "ISP", "Country", "Detections",
+        "APIVoid Risk Score", "APIVoid Blacklist Detections",
+        "AbuseIPDB Confidence Score", "AbuseIPDB Report Count",
+        "Threat Actor", "Country Of Origin", "Target Sector",
+        "Threat Category", "Campaign Name", "Malware Families"
+    ]
+    ws.append(headers)
 
-    for row in table:
-        ws.append(row)
+    for row in table_data:
+        ws.append(row[:14])  # Direct append (removes redundant assignments)
 
-    stream = BytesIO()
-    wb.save(stream)
-    stream.seek(0)
+    bold = Font(bold=True)
+    center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    border = Border(*(Side(style="thin"),) * 4)
+
+    for r in ws.iter_rows():
+        for c in r:
+            c.alignment = center
+            c.border = border
+            if c.row == 1:
+                c.font = bold
+
+    for col in ws.columns:
+        length = max(len(str(c.value)) if c.value else 0 for c in col)
+        ws.column_dimensions[get_column_letter(col[0].column)].width = max(12, min(length + 4, 50))
+
+    ws_summary = wb.create_sheet("Summary")
+    ws_summary["A1"] = "Scan Summary"
+    ws_summary["A1"].font = Font(size=14, bold=True)
+    ws_summary["A2"] = summary_text.strip()
+    ws_summary["A2"].alignment = Alignment(wrap_text=True, vertical="top")
+    ws_summary.column_dimensions["A"].width = 100
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
 
     return send_file(
-        stream,
+        output,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         as_attachment=True,
-        download_name="IOC_Report.xlsx",
-        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        download_name="IP_Info.xlsx"
     )
+
 
 # =========================
 # RUN
