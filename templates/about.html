@@ -1,0 +1,132 @@
+<!-- Only the changes are marked with comments -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>About IP & URL Lookup Tool</title>
+  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.0/css/all.min.css">
+
+
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="min-h-screen p-4 sm:p-6 bg-[#1e1e1e] text-white font-sans transition-all duration-300">
+  
+<div class="max-w-7xl mx-auto bg-[#2a2a2a] p-6 sm:p-10 rounded-2xl shadow-lg space-y-10 light-panel neon-border">
+
+  <!-- Header -->
+  <div class="sticky top-0 z-50 shadow-lg">
+    <div class="bg-green-600 text-white px-6 py-4 rounded-t-2xl flex items-center justify-between">
+      <h1 class="text-xl sm:text-2xl font-semibold">About IP & URL Lookup Tool</h1> <!-- ✅ Updated title -->
+      <button id="toggleTheme" class="text-white text-xl hover:text-yellow-300 transition duration-300">
+        <i class="ph ph-moon-stars"></i>
+      </button>
+    </div>
+  </div>
+
+   <!-- <div id="summary"  class="about-container text-base sm:text-xl font-semiboldm">
+     <p>Welcome to the <strong>IP & URL Lookup Tool</strong> — your one-stop utility for analyzing and investigating suspicious IP addresses and URLs.</p>
+
+      <ul class="about-list text-base sm:text-xl font-semibold ">
+        <li><strong>Dual Input Support:</strong> Accepts both IP addresses and URLs.</li>
+        <li><strong>IP Intelligence:</strong> Get ISP, country, and detection count.</li>
+        <li><strong>URL Scanning:</strong> Integrated with VirusTotal API for malicious detection.</li>
+        <li><strong>Strict Validation:</strong> Filters duplicates, private, invalid IPs and URLs' and allows search up to 100 entries in less than 5 seconds.</li>
+        <li><strong>Summaries:</strong> Provides lookup and API usage summary separately.</li>
+        <li><strong>Detailed Table Output:</strong>  ISP, geolocation and detections.</li> 
+        <li><strong>Copy & Download:</strong> Clipboard and Excel export functionality.</li>
+        <li><strong>Theming:</strong> Smooth toggle between dark and light modes.</li>
+        <li><strong>Modern UI:</strong> Neon borders, transitions, responsive layout.</li>
+      </ul>
+
+      <p>This tool is ideal for:</p>
+      <ul class="about-list">
+        <li><strong>Cybersecurity researchers & SOC teams</strong></li>
+        <li><strong>Threat investigators & analysts</strong></li>
+        <li><strong>Network admins & developers</strong></li>
+        <li><strong>Anyone validating suspicious IPs or links</strong></li>
+      </ul>
+
+      <div class="highlighted-lines">
+  <p class="highlight-effect">Specially dedicated to the SOC teams with an attempt to facilitate their daily tasks.</p>
+  <p class="highlight-effect">Thanks for visiting my website.</p>
+</div> 
+
+
+    </div>-->
+
+    <div id="summary" class="about-container text-base sm:text-xl font-medium space-y-6">
+
+  <h2 class="text-2xl sm:text-3xl font-bold text-primary mb-2">🚀 Welcome to the <span class="text-accent">IP & URL Lookup Tool</span></h2>
+  <p class="text-muted max-w-4xl">Your one-stop utility for analyzing and investigating suspicious IP addresses and URLs — fast, reliable, and intelligently designed for security teams.</p>
+
+  <div class="feature-box p-5 rounded-xl border border-accent shadow-lg">
+    <h3 class="text-xl sm:text-2xl font-semibold mb-4 text-accent"><strong>🔍 Core Features</strong></h3>
+    <ul class="list-inside list-disc space-y-2 text-base sm:text-lg">
+      <li><strong>Dual Input Support:</strong> Accepts both IP addresses and URLs.</li>
+      <li><strong>IP Intelligence:</strong> Get ISP, country, and detection count.</li>
+      <li><strong>URL Scanning:</strong> Integrated with VirusTotal API for malicious detection.</li>
+      <li><strong>Strict Validation:</strong> Filters duplicates, private, and invalid entries. Handles 100 entries in under 5 seconds.</li>
+      <li><strong>Summaries:</strong> Displays lookup and API usage separately.</li>
+      <li><strong>Detailed Table Output:</strong> Includes ISP, geolocation, and detections.</li>
+      <li><strong>Copy & Download:</strong> Clipboard and Excel export functionality.</li>
+      <li><strong>Theming:</strong> Smooth toggle between dark and light modes.</li>
+      <li><strong>Modern UI:</strong> Neon borders, transitions, responsive layout.</li>
+    </ul>
+  </div>
+
+  <div class="audience-box p-5 rounded-xl border border-accent shadow-md">
+    <h3 class="text-xl sm:text-2xl font-semibold mb-4 text-blue-400"><strong>🎯 Ideal For</strong></h3>
+    <ul class="list-inside list-disc space-y-2 text-base sm:text-lg">
+      <li><strong>Cybersecurity researchers</strong></li>
+      <li><strong>Threat investigators & analysts</strong></li>
+      <li><strong>Network admins & developers</strong></li>
+      <li><strong>Anyone validating suspicious IPs or links</strong></li>
+      <li><strong>Especially dedicated to the SOC teams with an attempt to facilitate their daily tasks.</strong></li>
+    </ul>
+  </div>
+
+  <div class="highlighted-lines">
+    <p class="highlight-effect"></p>
+    <p class="highlight-effect" >Thanks for visiting my website.</p>
+  </div>
+
+</div>
+
+
+  <footer class="custom-footer">
+  <div class="footer-bar">
+    <div class="footer-links">
+      <a href="/" class="footer-icon-link" title="Home">
+        <i class="fas fa-house-chimney"></i>
+      </a>
+      <a href="https://www.linkedin.com/in/harsh-raj-b142641bb/" class="footer-icon-link" target="_blank" title="LinkedIn">
+        <i class="fab fa-linkedin"></i>
+      </a>
+      <a href="https://mail.google.com/mail/?view=cm&fs=1&to=hrajofficial01@gmail.com" class="footer-icon-link" target="_blank" title="Email">
+        <i class="fas fa-envelope"></i>
+      </a>
+    </div>
+
+    <div class="footer-divider"></div>
+
+    <div class="footer-copy">
+      &copy; <span id="current-year"></span> IP & URL Lookup Tool. All rights reserved.
+    </div>
+  </div>
+</footer>
+
+<script>
+  document.getElementById('current-year').textContent = new Date().getFullYear();
+</script>
+
+</div>
+<script src="{{ url_for('static', filename='JS/obfuscated.js') }}"></script>
+
+</body>
+</html>
