@@ -1,8 +1,12 @@
+// ============================================================
+// INPUT VALIDATION
+// ============================================================
+
 function isValidIP(ip) {
   const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
 
   if (ipv4Regex.test(ip)) {
-    const parts = ip.split('.').map(Number);
+    const parts = ip.split(".").map(Number);
 
     if (
       parts.every(
@@ -11,7 +15,7 @@ function isValidIP(ip) {
     ) {
       return (
         ipaddr.isValid(ip) &&
-        ipaddr.parse(ip).kind() === 'ipv4'
+        ipaddr.parse(ip).kind() === "ipv4"
       );
     }
 
@@ -20,7 +24,7 @@ function isValidIP(ip) {
 
   if (ipaddr.isValid(ip)) {
     return (
-      ipaddr.parse(ip).kind() === 'ipv6'
+      ipaddr.parse(ip).kind() === "ipv6"
     );
   }
 
@@ -40,7 +44,6 @@ function isValidHash(str) {
 
 
 function isPrivateIP(ip) {
-
   const parts = ip.split(".").map(Number);
 
   if (
@@ -64,9 +67,7 @@ function isPrivateIP(ip) {
 
 
 function isValidURL(str) {
-
   try {
-
     const url = new URL(
       str.startsWith("http")
         ? str
@@ -95,25 +96,21 @@ function isValidURL(str) {
     return true;
 
   } catch {
-
     return false;
   }
 }
 
 
-// =========================
+// ============================================================
 // API KEY INPUT HELPERS
-// =========================
+// ============================================================
 
 function getApiKeyValue(ids) {
-
   for (const id of ids) {
-
     const element =
       document.getElementById(id);
 
     if (element) {
-
       return element.value.trim();
     }
   }
@@ -123,9 +120,7 @@ function getApiKeyValue(ids) {
 
 
 function getUserApiKeys() {
-
   return {
-
     vt_api_key: getApiKeyValue([
       "vtApiKey",
       "vt_api_key",
@@ -150,29 +145,178 @@ function getUserApiKeys() {
 }
 
 
-// =========================
-// USER API KEY POPUP
-// =========================
+// ============================================================
+// API KEY MASKING
+// ============================================================
+
+function maskApiKey(key) {
+  if (!key) {
+    return "••••";
+  }
+
+  const value = key.trim();
+
+  if (value.length <= 8) {
+    return "••••••••";
+  }
+
+  const start = value.slice(0, 4);
+  const end = value.slice(-4);
+
+  return `${start}••••••••${end}`;
+}
+
+
+// ============================================================
+// SERVICE NAME HELPERS
+// ============================================================
+
+function getServiceKeyName(service) {
+  if (service === "VirusTotal") {
+    return "vt_api_key";
+  }
+
+  if (service === "APIVoid") {
+    return "apivoid_api_key";
+  }
+
+  if (service === "AbuseIPDB") {
+    return "abuseipdb_api_key";
+  }
+
+  return null;
+}
+
+
+function getServiceDisplayName(service) {
+  const names = {
+    VirusTotal: "VirusTotal",
+    APIVoid: "APIVoid",
+    AbuseIPDB: "AbuseIPDB"
+  };
+
+  return names[service] || service;
+}
+
+
+// ============================================================
+// API KEY INPUT BEAUTIFICATION
+// ============================================================
+
+function styleApiKeyInputs() {
+  const selectors = [
+    "#vtApiKey",
+    "#vt_api_key",
+    "#virustotalApiKey",
+    "#virustotal_api_key",
+
+    "#apivoidApiKey",
+    "#apivoid_api_key",
+    "#apiVoidApiKey",
+    "#apiVoid_api_key",
+
+    "#abuseipdbApiKey",
+    "#abuseipdb_api_key",
+    "#abuseApiKey",
+    "#abuse_api_key"
+  ];
+
+  selectors.forEach(selector => {
+    const input =
+      document.querySelector(selector);
+
+    if (!input) {
+      return;
+    }
+
+    input.style.color = "#e5e7eb";
+    input.style.caretColor = "#60a5fa";
+    input.style.backgroundColor =
+      "rgba(17, 24, 39, 0.85)";
+
+    input.style.border =
+      "1px solid rgba(148, 163, 184, 0.25)";
+
+    input.style.transition =
+      "all 0.2s ease";
+
+    input.style.padding =
+      "10px 12px";
+
+    input.style.borderRadius =
+      "8px";
+
+    input.style.outline = "none";
+
+    input.addEventListener(
+      "focus",
+      () => {
+        input.style.border =
+          "1px solid #60a5fa";
+
+        input.style.boxShadow =
+          "0 0 0 3px rgba(96,165,250,0.12)";
+      }
+    );
+
+    input.addEventListener(
+      "blur",
+      () => {
+        input.style.border =
+          "1px solid rgba(148, 163, 184, 0.25)";
+
+        input.style.boxShadow =
+          "none";
+      }
+    );
+
+    input.addEventListener(
+      "input",
+      () => {
+        if (input.value.trim()) {
+          input.style.border =
+            "1px solid rgba(34,197,94,0.65)";
+
+          input.style.boxShadow =
+            "0 0 10px rgba(34,197,94,0.10)";
+        } else {
+          input.style.border =
+            "1px solid rgba(148,163,184,0.25)";
+
+          input.style.boxShadow =
+            "none";
+        }
+      }
+    );
+  });
+}
+
+
+// ============================================================
+// INVALID API KEY POPUP
 //
-// This popup is shown ONLY when
-// the user actually entered a custom
-// API key and that key was rejected.
+// IMPORTANT:
 //
-// No popup is shown when the user
-// leaves the API key fields empty.
-// =========================
+// This popup DOES NOT automatically fallback.
+//
+// The popup stays active until the user explicitly
+// chooses one of the available actions.
+//
+// "Enter Another Key" returns the newly entered key.
+//
+// "Use Existing Key" returns "use_default".
+//
+// There is NO silent cancellation.
+// ============================================================
 
 function showInvalidApiKeyPopup(
-  invalidKeys
+  invalidKeyItems
 ) {
-
   if (
-    !Array.isArray(invalidKeys) ||
-    invalidKeys.length === 0
+    !Array.isArray(invalidKeyItems) ||
+    invalidKeyItems.length === 0
   ) {
-    return Promise.resolve(
-      "continue"
-    );
+    return Promise.resolve(null);
   }
 
   return new Promise(resolve => {
@@ -186,14 +330,34 @@ function showInvalidApiKeyPopup(
       existing.remove();
     }
 
-    const services =
-      invalidKeys
-        .map(item => item.service)
-        .filter(
-          (value, index, array) =>
-            array.indexOf(value) === index
-        )
-        .join(", ");
+
+    // --------------------------------------------------------
+    // Use the first invalid service.
+    //
+    // We process services one at a time so that if the user
+    // enters another bad key, the popup can appear again.
+    // --------------------------------------------------------
+
+    const item =
+      invalidKeyItems[0];
+
+    const service =
+      item.service || "API Service";
+
+    const originalKey =
+      item.api_key ||
+      item.key ||
+      item.value ||
+      "";
+
+    const maskedKey =
+      item.masked_key ||
+      maskApiKey(originalKey);
+
+
+    // --------------------------------------------------------
+    // Overlay
+    // --------------------------------------------------------
 
     const overlay =
       document.createElement("div");
@@ -204,10 +368,14 @@ function showInvalidApiKeyPopup(
     overlay.style.position =
       "fixed";
 
-    overlay.style.inset = "0";
+    overlay.style.inset =
+      "0";
 
     overlay.style.background =
-      "rgba(0, 0, 0, 0.70)";
+      "rgba(0, 0, 0, 0.72)";
+
+    overlay.style.backdropFilter =
+      "blur(5px)";
 
     overlay.style.display =
       "flex";
@@ -221,17 +389,25 @@ function showInvalidApiKeyPopup(
     overlay.style.zIndex =
       "99999";
 
+    overlay.style.padding =
+      "20px";
+
+
+    // --------------------------------------------------------
+    // Popup
+    // --------------------------------------------------------
+
     const popup =
       document.createElement("div");
 
     popup.style.width =
-      "min(500px, 90%)";
+      "min(520px, 94%)";
 
     popup.style.padding =
-      "24px";
+      "26px";
 
     popup.style.borderRadius =
-      "12px";
+      "14px";
 
     popup.style.background =
       "#111827";
@@ -239,35 +415,106 @@ function showInvalidApiKeyPopup(
     popup.style.color =
       "#ffffff";
 
+    popup.style.border =
+      "1px solid rgba(148,163,184,0.25)";
+
     popup.style.boxShadow =
-      "0 20px 50px rgba(0,0,0,0.5)";
+      "0 25px 70px rgba(0,0,0,0.65)";
+
 
     popup.innerHTML = `
-      <h3 style="
-        margin:0 0 12px;
-        font-size:20px;
-        font-weight:700;
+
+      <div style="
+        display:flex;
+        align-items:center;
+        gap:12px;
+        margin-bottom:16px;
       ">
-        ⚠️ API Key Rejected
-      </h3>
+
+        <div style="
+          width:42px;
+          height:42px;
+          border-radius:50%;
+          display:flex;
+          align-items:center;
+          justify-content:center;
+          background:rgba(239,68,68,0.12);
+          color:#f87171;
+          font-size:22px;
+        ">
+          ⚠️
+        </div>
+
+        <div>
+          <h3 style="
+            margin:0;
+            font-size:20px;
+            font-weight:700;
+          ">
+            API Key Rejected
+          </h3>
+
+          <div style="
+            margin-top:3px;
+            font-size:13px;
+            color:#9ca3af;
+          ">
+            ${getServiceDisplayName(service)}
+          </div>
+        </div>
+
+      </div>
+
+
+      <div style="
+        padding:12px 14px;
+        border-radius:8px;
+        background:rgba(239,68,68,0.08);
+        border:1px solid rgba(239,68,68,0.18);
+        margin-bottom:16px;
+      ">
+
+        <div style="
+          font-size:13px;
+          color:#9ca3af;
+          margin-bottom:5px;
+        ">
+          Rejected key
+        </div>
+
+        <div style="
+          font-family:monospace;
+          color:#fca5a5;
+          word-break:break-all;
+        ">
+          ${maskedKey}
+        </div>
+
+      </div>
+
 
       <p style="
-        margin-bottom:12px;
-        line-height:1.5;
+        margin:0 0 8px;
+        line-height:1.55;
+        color:#e5e7eb;
       ">
         The API key entered for
-        <strong>${services}</strong>
-        was rejected by the service.
+        <strong>${service}</strong>
+        was rejected.
       </p>
 
+
       <p style="
-        margin-bottom:20px;
-        line-height:1.5;
+        margin:0 0 20px;
+        line-height:1.55;
+        color:#9ca3af;
+        font-size:14px;
       ">
-        Would you like to continue using
-        the existing API keys configured
-        in the system?
+        Choose what you want to do.
+        The system will <strong>not</strong>
+        automatically switch to the default key.
       </p>
+
 
       <div style="
         display:flex;
@@ -288,8 +535,9 @@ function showInvalidApiKeyPopup(
             font-weight:600;
           "
         >
-          Use Existing Keys
+          Use Existing Key
         </button>
+
 
         <button
           id="apiKeyEnterNewBtn"
@@ -309,11 +557,17 @@ function showInvalidApiKeyPopup(
       </div>
     `;
 
+
     overlay.appendChild(popup);
 
     document.body.appendChild(
       overlay
     );
+
+
+    // --------------------------------------------------------
+    // USE DEFAULT
+    // --------------------------------------------------------
 
     document
       .getElementById(
@@ -325,11 +579,25 @@ function showInvalidApiKeyPopup(
 
           overlay.remove();
 
-          resolve(
-            "continue"
-          );
+          resolve({
+            action: "use_default",
+            service: service,
+            rejectedKey: originalKey,
+            maskedKey: maskedKey
+          });
+
         }
       );
+
+
+    // --------------------------------------------------------
+    // ENTER ANOTHER KEY
+    //
+    // IMPORTANT:
+    //
+    // We do NOT automatically make the API call here.
+    // We ask for a key first.
+    // --------------------------------------------------------
 
     document
       .getElementById(
@@ -341,9 +609,13 @@ function showInvalidApiKeyPopup(
 
           overlay.remove();
 
-          resolve(
-            "replace"
-          );
+          resolve({
+            action: "enter_new",
+            service: service,
+            rejectedKey: originalKey,
+            maskedKey: maskedKey
+          });
+
         }
       );
 
@@ -351,9 +623,334 @@ function showInvalidApiKeyPopup(
 }
 
 
-// =========================
+// ============================================================
+// ASK FOR A NEW API KEY
+//
+// Uses a custom modal instead of browser prompt().
+//
+// If the user enters nothing, the modal stays open.
+// ============================================================
+
+function askForNewApiKey(service) {
+
+  return new Promise(resolve => {
+
+    const existing =
+      document.getElementById(
+        "enterNewApiKeyPopup"
+      );
+
+    if (existing) {
+      existing.remove();
+    }
+
+
+    const overlay =
+      document.createElement("div");
+
+    overlay.id =
+      "enterNewApiKeyPopup";
+
+    overlay.style.position =
+      "fixed";
+
+    overlay.style.inset =
+      "0";
+
+    overlay.style.background =
+      "rgba(0,0,0,0.72)";
+
+    overlay.style.backdropFilter =
+      "blur(5px)";
+
+    overlay.style.display =
+      "flex";
+
+    overlay.style.alignItems =
+      "center";
+
+    overlay.style.justifyContent =
+      "center";
+
+    overlay.style.zIndex =
+      "100000";
+
+    overlay.style.padding =
+      "20px";
+
+
+    const popup =
+      document.createElement("div");
+
+    popup.style.width =
+      "min(500px,94%)";
+
+    popup.style.padding =
+      "26px";
+
+    popup.style.borderRadius =
+      "14px";
+
+    popup.style.background =
+      "#111827";
+
+    popup.style.color =
+      "#ffffff";
+
+    popup.style.border =
+      "1px solid rgba(148,163,184,0.25)";
+
+    popup.style.boxShadow =
+      "0 25px 70px rgba(0,0,0,0.65)";
+
+
+    popup.innerHTML = `
+
+      <h3 style="
+        margin:0 0 8px;
+        font-size:20px;
+        font-weight:700;
+      ">
+        🔑 Enter Another ${service} Key
+      </h3>
+
+
+      <p style="
+        margin:0 0 18px;
+        color:#9ca3af;
+        font-size:14px;
+        line-height:1.5;
+      ">
+        Enter a new API key below.
+        This key will be tested before
+        any fallback to the system key occurs.
+      </p>
+
+
+      <input
+        id="newApiKeyInput"
+        type="password"
+        autocomplete="off"
+        spellcheck="false"
+        placeholder="Enter your ${service} API key"
+        style="
+          width:100%;
+          box-sizing:border-box;
+          padding:12px 14px;
+          border-radius:9px;
+          border:1px solid rgba(148,163,184,0.3);
+          background:#0f172a;
+          color:#f8fafc;
+          caret-color:#60a5fa;
+          outline:none;
+          font-family:monospace;
+          font-size:14px;
+        "
+      />
+
+
+      <div
+        id="newApiKeyError"
+        style="
+          display:none;
+          margin-top:10px;
+          color:#f87171;
+          font-size:13px;
+        "
+      >
+      </div>
+
+
+      <div style="
+        display:flex;
+        justify-content:flex-end;
+        gap:10px;
+        margin-top:20px;
+      ">
+
+        <button
+          id="cancelNewApiKeyBtn"
+          style="
+            padding:10px 16px;
+            border-radius:8px;
+            border:1px solid rgba(148,163,184,0.25);
+            cursor:pointer;
+            background:#1f2937;
+            color:#d1d5db;
+            font-weight:600;
+          "
+        >
+          Back
+        </button>
+
+
+        <button
+          id="submitNewApiKeyBtn"
+          style="
+            padding:10px 16px;
+            border-radius:8px;
+            border:none;
+            cursor:pointer;
+            background:#7c3aed;
+            color:white;
+            font-weight:600;
+          "
+        >
+          Test Key
+        </button>
+
+      </div>
+    `;
+
+
+    overlay.appendChild(popup);
+
+    document.body.appendChild(
+      overlay
+    );
+
+
+    const input =
+      document.getElementById(
+        "newApiKeyInput"
+      );
+
+    const error =
+      document.getElementById(
+        "newApiKeyError"
+      );
+
+
+    setTimeout(
+      () => input.focus(),
+      50
+    );
+
+
+    // --------------------------------------------------------
+    // Input styling
+    // --------------------------------------------------------
+
+    input.addEventListener(
+      "focus",
+      () => {
+        input.style.border =
+          "1px solid #60a5fa";
+
+        input.style.boxShadow =
+          "0 0 0 3px rgba(96,165,250,0.12)";
+      }
+    );
+
+
+    input.addEventListener(
+      "blur",
+      () => {
+        input.style.border =
+          "1px solid rgba(148,163,184,0.3)";
+
+        input.style.boxShadow =
+          "none";
+      }
+    );
+
+
+    // --------------------------------------------------------
+    // Submit
+    // --------------------------------------------------------
+
+    document
+      .getElementById(
+        "submitNewApiKeyBtn"
+      )
+      .addEventListener(
+        "click",
+        () => {
+
+          const value =
+            input.value.trim();
+
+          if (!value) {
+
+            error.textContent =
+              "Please enter an API key.";
+
+            error.style.display =
+              "block";
+
+            input.focus();
+
+            return;
+          }
+
+
+          overlay.remove();
+
+          resolve({
+            action: "new_key",
+            key: value
+          });
+
+        }
+      );
+
+
+    // --------------------------------------------------------
+    // Back
+    //
+    // Goes back to the previous API key popup.
+    // It does NOT trigger an API request.
+    // --------------------------------------------------------
+
+    document
+      .getElementById(
+        "cancelNewApiKeyBtn"
+      )
+      .addEventListener(
+        "click",
+        () => {
+
+          overlay.remove();
+
+          resolve({
+            action: "back"
+          });
+
+        }
+      );
+
+
+    // --------------------------------------------------------
+    // ENTER KEY
+    // --------------------------------------------------------
+
+    input.addEventListener(
+      "keydown",
+      event => {
+
+        if (
+          event.key === "Enter"
+        ) {
+
+          event.preventDefault();
+
+          document
+            .getElementById(
+              "submitNewApiKeyBtn"
+            )
+            .click();
+        }
+
+      }
+    );
+
+  });
+}
+
+
+// ============================================================
 // FETCH IP DATA
-// =========================
+// ============================================================
 
 async function fetchIPData() {
 
@@ -408,6 +1005,10 @@ async function fetchIPData() {
     );
 
 
+  // ==========================================================
+  // RESET PREVIOUS RESULT
+  // ==========================================================
+
   errorMsg.classList.add(
     "hidden"
   );
@@ -438,7 +1039,11 @@ async function fetchIPData() {
   );
 
 
-  let rawEntries =
+  // ==========================================================
+  // PARSE INPUT
+  // ==========================================================
+
+  const rawEntries =
     inputField.value
       .split(/[\s,\n]+/)
       .map(e => e.trim())
@@ -520,6 +1125,7 @@ async function fetchIPData() {
       skippedInvalid.push(
         entry
       );
+
     }
   }
 
@@ -534,6 +1140,10 @@ async function fetchIPData() {
   const messages =
     [];
 
+
+  // ==========================================================
+  // NO VALID INPUT
+  // ==========================================================
 
   if (
     validEntries.length === 0
@@ -550,6 +1160,10 @@ async function fetchIPData() {
   }
 
 
+  // ==========================================================
+  // INVALID ENTRIES
+  // ==========================================================
+
   if (
     skippedInvalid.length > 0
   ) {
@@ -561,12 +1175,16 @@ async function fetchIPData() {
         skippedInvalid.length !== 1
           ? "ies"
           : "y"
-      } skipped</span> : ${
+      } skipped</span>: ${
         skippedInvalid.join(", ")
       }`
     );
   }
 
+
+  // ==========================================================
+  // DUPLICATES
+  // ==========================================================
 
   if (
     duplicates.length > 0
@@ -585,6 +1203,10 @@ async function fetchIPData() {
     );
   }
 
+
+  // ==========================================================
+  // PRIVATE IPs
+  // ==========================================================
 
   const privateIPs =
     rawEntries.filter(
@@ -605,12 +1227,16 @@ async function fetchIPData() {
         privateIPs.length !== 1
           ? "s"
           : ""
-      } filtered </span>: ${
+      } filtered</span>: ${
         privateIPs.join(", ")
       }`
     );
   }
 
+
+  // ==========================================================
+  // MAX 100
+  // ==========================================================
 
   if (
     validEntries.length > 100
@@ -622,6 +1248,7 @@ async function fetchIPData() {
       }</span> valid entries. Only the first 100 will be processed.`
     );
 
+
     messages.push(
       `⚠️ <span class="text-purple-400 font-bold">${
         validEntries.length - 100
@@ -632,6 +1259,7 @@ async function fetchIPData() {
       }`
     );
 
+
     validEntries =
       validEntries.slice(
         0,
@@ -640,6 +1268,10 @@ async function fetchIPData() {
   }
 
 
+  // ==========================================================
+  // BUTTON STATE
+  // ==========================================================
+
   lookupButton.disabled =
     true;
 
@@ -647,17 +1279,27 @@ async function fetchIPData() {
     "Fetching...";
 
 
-  // =========================
+  // ==========================================================
   // GET USER API KEYS
-  // =========================
+  // ==========================================================
 
-  const userApiKeys =
+  let userApiKeys =
     getUserApiKeys();
 
 
-  // =========================
+  // ==========================================================
+  // KEEP TRACK OF FALLBACKS
+  //
+  // These are added to the request summary.
+  // ==========================================================
+
+  const fallbackMessages =
+    [];
+
+
+  // ==========================================================
   // REQUEST FUNCTION
-  // =========================
+  // ==========================================================
 
   async function performLookup(
     apiKeys
@@ -679,14 +1321,18 @@ async function fetchIPData() {
             ips:
               validEntries,
 
-            vt_api_key:
-              apiKeys.vt_api_key,
+            api_keys: {
 
-            apivoid_api_key:
-              apiKeys.apivoid_api_key,
+              vt:
+                apiKeys.vt_api_key,
 
-            abuseipdb_api_key:
-              apiKeys.abuseipdb_api_key
+              apivoid:
+                apiKeys.apivoid_api_key,
+
+              abuseipdb:
+                apiKeys.abuseipdb_api_key
+            }
+
           })
         }
       );
@@ -703,6 +1349,7 @@ async function fetchIPData() {
             () => ({})
           );
 
+
       throw new Error(
         error.error ||
         "Server error occurred."
@@ -714,131 +1361,244 @@ async function fetchIPData() {
   }
 
 
-  try {
+  // ==========================================================
+  // API KEY HANDLING
+  //
+  // IMPORTANT:
+  //
+  // We keep requesting until every invalid user key has either:
+  //
+  // 1. been replaced with a valid key
+  //
+  // OR
+  //
+  // 2. explicitly switched to the default/system key.
+  //
+  // There is NO automatic fallback.
+  // ==========================================================
 
-    let data =
-      await performLookup(
-        userApiKeys
-      );
+  async function lookupWithApiKeyHandling() {
 
+    while (true) {
 
-    // =========================
-    // INVALID USER KEY
-    // =========================
-    //
-    // Popup is shown ONLY when
-    // the user actually entered
-    // a key.
-    // =========================
-
-    if (
-      Array.isArray(
-        data.invalid_user_keys
-      ) &&
-      data.invalid_user_keys.length > 0
-    ) {
-
-      const choice =
-        await showInvalidApiKeyPopup(
-          data.invalid_user_keys
+      const data =
+        await performLookup(
+          userApiKeys
         );
 
 
+      const errors =
+        Array.isArray(
+          data.user_key_errors
+        )
+          ? data.user_key_errors
+          : [];
+
+
+      // --------------------------------------------------------
+      // No invalid user keys.
+      // Done.
+      // --------------------------------------------------------
+
       if (
-        choice === "continue"
+        errors.length === 0
       ) {
 
-        // Remove user supplied keys
-        // and run the request again
-        // using only the existing
-        // system keys.
-
-        data =
-          await performLookup({
-
-            vt_api_key:
-              "",
-
-            apivoid_api_key:
-              "",
-
-            abuseipdb_api_key:
-              ""
-          });
-
-      } else {
-
-        // User chose to enter
-        // another key.
-
-        const services =
-          data.invalid_user_keys
-            .map(
-              item =>
-                item.service
-            )
-            .filter(
-              (value, index, array) =>
-                array.indexOf(value) === index
-            );
+        return data;
+      }
 
 
-        for (
-          const service of services
+      // --------------------------------------------------------
+      // Process ONE invalid service at a time.
+      // --------------------------------------------------------
+
+      const invalidItem =
+        errors[0];
+
+      const service =
+        invalidItem.service ||
+        "API Service";
+
+      const keyName =
+        getServiceKeyName(
+          service
+        );
+
+
+      if (!keyName) {
+
+        console.warn(
+          "Unknown API service:",
+          service
+        );
+
+        return data;
+      }
+
+
+      // --------------------------------------------------------
+      // Get the key that was actually supplied.
+      // --------------------------------------------------------
+
+      const rejectedKey =
+        userApiKeys[keyName] ||
+        invalidItem.api_key ||
+        invalidItem.key ||
+        "";
+
+
+      const maskedRejectedKey =
+        maskApiKey(
+          rejectedKey
+        );
+
+
+      // --------------------------------------------------------
+      // SHOW POPUP
+      //
+      // Popup stays until user makes a choice.
+      // --------------------------------------------------------
+
+      const choice =
+        await showInvalidApiKeyPopup([
+          {
+            ...invalidItem,
+            service: service,
+            api_key: rejectedKey,
+            masked_key:
+              maskedRejectedKey
+          }
+        ]);
+
+
+      // --------------------------------------------------------
+      // USER CHOSE DEFAULT
+      // --------------------------------------------------------
+
+      if (
+        choice &&
+        choice.action === "use_default"
+      ) {
+
+        fallbackMessages.push(
+          `⚠️ <strong>${service}</strong> API key <code>${maskedRejectedKey}</code> was rejected. Default system key was used instead.`
+        );
+
+
+        // Empty key tells backend to use its
+        // configured/default system key.
+
+        userApiKeys[keyName] =
+          "";
+
+
+        // Retry request.
+        //
+        // If another user key is invalid,
+        // the loop will show the popup again.
+        continue;
+      }
+
+
+      // --------------------------------------------------------
+      // USER CHOSE ENTER ANOTHER KEY
+      // --------------------------------------------------------
+
+      if (
+        choice &&
+        choice.action === "enter_new"
+      ) {
+
+        const newKeyResult =
+          await askForNewApiKey(
+            service
+          );
+
+
+        // ------------------------------------------------------
+        // User pressed Back.
+        //
+        // Show the SAME rejected-key popup again.
+        // No API call happens.
+        // ------------------------------------------------------
+
+        if (
+          newKeyResult.action ===
+          "back"
         ) {
 
-          let newKey =
-            prompt(
-              `Enter another ${service} API key:`
-            );
-
-
-          if (
-            newKey &&
-            newKey.trim()
-          ) {
-
-            if (
-              service === "VirusTotal"
-            ) {
-
-              userApiKeys.vt_api_key =
-                newKey.trim();
-
-            } else if (
-              service === "APIVoid"
-            ) {
-
-              userApiKeys.apivoid_api_key =
-                newKey.trim();
-
-            } else if (
-              service === "AbuseIPDB"
-            ) {
-
-              userApiKeys.abuseipdb_api_key =
-                newKey.trim();
-            }
-          }
+          continue;
         }
 
 
-        data =
-          await performLookup(
-            userApiKeys
-          );
+        if (
+          newKeyResult.action ===
+          "new_key"
+        ) {
+
+          const newKey =
+            newKeyResult.key.trim();
+
+
+          // ----------------------------------------------------
+          // Replace ONLY this service's key.
+          // Other custom keys remain untouched.
+          // ----------------------------------------------------
+
+          userApiKeys[keyName] =
+            newKey;
+
+
+          // ----------------------------------------------------
+          // IMPORTANT:
+          //
+          // The request is now performed with the NEW key.
+          //
+          // If the new key is invalid, backend returns
+          // user_key_errors again.
+          //
+          // The while loop then shows the popup AGAIN.
+          //
+          // It will NOT silently use the default key.
+          // ----------------------------------------------------
+
+          continue;
+        }
       }
     }
+  }
 
+
+  // ==========================================================
+  // MAIN REQUEST
+  // ==========================================================
+
+  try {
+
+    const data =
+      await lookupWithApiKeyHandling();
+
+
+    // ========================================================
+    // PROCESSED COUNT
+    // ========================================================
 
     const processedCount =
       data.raw_table?.length ||
       0;
 
 
+    // ========================================================
+    // SUMMARY
+    // ========================================================
+
     summaryDiv.innerHTML =
       data.summary;
 
+
+    // ========================================================
+    // EXHAUSTED SERVICES
+    // ========================================================
 
     if (
       Array.isArray(
@@ -854,10 +1614,20 @@ async function fetchIPData() {
             messages.push(
               `<div class="font-medium mb-3 text-red-600">${msg}</div>`
             );
+
           }
         );
     }
 
+
+    // ========================================================
+    // NO DATA IPS
+    //
+    // IMPORTANT FIX:
+    //
+    // If an entry exists in raw_table, it has returned data.
+    // Therefore it must NOT be displayed as "no data".
+    // ========================================================
 
     if (
       Array.isArray(
@@ -866,36 +1636,63 @@ async function fetchIPData() {
       data.no_data_ips.length > 0
     ) {
 
-      const displayList =
-        data.no_data_ips
-          .slice(0, 5)
-          .join(", ");
+      const returnedEntries =
+        new Set(
+          (data.raw_table || [])
+            .map(row =>
+              row && row.length > 0
+                ? String(row[0]).trim()
+                : ""
+            )
+            .filter(Boolean)
+        );
 
-      const more =
-        data.no_data_ips.length > 5
-          ? ` and ${
-              data.no_data_ips.length - 5
-            } more...`
-          : "";
+
+      const actualNoData =
+        data.no_data_ips.filter(
+          entry =>
+            !returnedEntries.has(
+              String(entry).trim()
+            )
+        );
 
 
-      messages.push(
-        `⚠️ ${
-          data.no_data_ips.length
-        } entr${
-          data.no_data_ips.length !== 1
-            ? "ies"
-            : "y"
-        } returned no fields: ${
-          displayList
-        }${more}`
-      );
+      if (
+        actualNoData.length > 0
+      ) {
+
+        const displayList =
+          actualNoData
+            .slice(0, 5)
+            .join(", ");
+
+
+        const more =
+          actualNoData.length > 5
+            ? ` and ${
+                actualNoData.length - 5
+              } more...`
+            : "";
+
+
+        messages.push(
+          `⚠️ ${
+            actualNoData.length
+          } entr${
+            actualNoData.length !== 1
+              ? "ies"
+              : "y"
+          } returned no fields: ${
+            displayList
+          }${more}`
+        );
+      }
     }
 
 
-    // =========================
-    // USER KEY SUMMARY
-    // =========================
+    // ========================================================
+    // USER KEY MESSAGES FROM BACKEND
+    // ========================================================
 
     if (
       Array.isArray(
@@ -911,10 +1708,33 @@ async function fetchIPData() {
             messages.push(
               `<div class="font-medium mb-3 text-blue-400">${msg}</div>`
             );
+
           }
         );
     }
 
+
+    // ========================================================
+    // FALLBACK MESSAGES
+    //
+    // Added AFTER normal messages so the user can clearly see
+    // which key was rejected and which default was used.
+    // ========================================================
+
+    fallbackMessages.forEach(
+      msg => {
+
+        messages.push(
+          `<div class="font-medium mb-3 text-yellow-400">${msg}</div>`
+        );
+
+      }
+    );
+
+
+    // ========================================================
+    // ENTRY MESSAGE
+    // ========================================================
 
     const entryMsg =
       `✅ Data found for <span class="text-green-400 font-bold">${
@@ -931,6 +1751,10 @@ async function fetchIPData() {
           : ""
       }</span>.`;
 
+
+    // ========================================================
+    // SERVICES USED
+    // ========================================================
 
     const serviceList =
       Array.isArray(
@@ -960,17 +1784,19 @@ async function fetchIPData() {
     );
 
 
-    // =========================
+    // ========================================================
     // TABLE HEADER
-    // =========================
+    // ========================================================
 
     const tableHead =
       document.getElementById(
         "tableHead"
       );
 
+
     tableHead.innerHTML =
       "";
+
 
     const headerRow =
       document.createElement(
@@ -978,7 +1804,7 @@ async function fetchIPData() {
       );
 
 
-    let headerTitles = [
+    const headerTitles = [
 
       "IP/URL/HASH",
 
@@ -994,14 +1820,7 @@ async function fetchIPData() {
 
       "AbuseIPDB Confidence Score(%)",
 
-      "AbuseIPDB Report Count",
-
-      // "Threat Actor",
-      // "Country Of Origin",
-      // "Target Sector",
-      // "Threat Category",
-      // "Campaign Name",
-      // "Malware Families"
+      "AbuseIPDB Report Count"
 
     ];
 
@@ -1015,11 +1834,14 @@ async function fetchIPData() {
           "th"
         );
 
+
       th.innerText =
         title;
 
+
       th.className =
         "border px-3 py-2 text-center";
+
 
       headerRow.appendChild(
         th
@@ -1032,17 +1854,13 @@ async function fetchIPData() {
     );
 
 
-    // =========================
+    // ========================================================
     // TABLE BODY
-    // =========================
+    // ========================================================
 
     tableBody.innerHTML =
       "";
 
-
-    // IMPORTANT:
-    // Backend now returns the
-    // rows in the exact input order.
 
     for (
       const row of
@@ -1065,14 +1883,7 @@ async function fetchIPData() {
 
         abuseipdbConfidenceRaw,
 
-        abuseipdbReportCountRaw,
-
-        // threatActorRaw,
-        // countryOriginRaw,
-        // targetSectorRaw,
-        // threatCategoryRaw,
-        // campaignNameRaw,
-        // malwareFamiliesRaw,
+        abuseipdbReportCountRaw
 
       ] = row;
 
@@ -1090,6 +1901,7 @@ async function fetchIPData() {
           return "-";
         }
 
+
         if (
           Array.isArray(field)
         ) {
@@ -1099,11 +1911,12 @@ async function fetchIPData() {
             : "-";
         }
 
+
         return field.toString();
       }
 
 
-      let cells = [
+      const cells = [
 
         inputValue,
 
@@ -1129,14 +1942,7 @@ async function fetchIPData() {
 
         formatField(
           abuseipdbReportCountRaw
-        ),
-
-        // formatField(threatActorRaw),
-        // formatField(countryOriginRaw),
-        // formatField(targetSectorRaw),
-        // formatField(threatCategoryRaw),
-        // formatField(campaignNameRaw),
-        // formatField(malwareFamiliesRaw)
+        )
 
       ];
 
@@ -1156,11 +1962,14 @@ async function fetchIPData() {
             "td"
           );
 
+
         td.innerText =
           cell;
 
+
         td.className =
           "border px-3 py-1 text-center";
+
 
         tr.appendChild(
           td
@@ -1174,6 +1983,10 @@ async function fetchIPData() {
     }
 
 
+    // ========================================================
+    // SHOW RESULTS
+    // ========================================================
+
     summarySection.classList.remove(
       "hidden"
     );
@@ -1181,6 +1994,7 @@ async function fetchIPData() {
     tableSection.classList.remove(
       "hidden"
     );
+
 
     messageBlock.style.display =
       "block";
@@ -1209,9 +2023,14 @@ async function fetchIPData() {
         messageBlock.classList.add(
           "show"
         );
+
       }
     );
 
+
+    // ========================================================
+    // DOWNLOAD
+    // ========================================================
 
     downloadBtn.style.display =
       "inline-block";
@@ -1225,6 +2044,10 @@ async function fetchIPData() {
         "hidden"
       );
 
+
+    // ========================================================
+    // STORE LATEST DATA
+    // ========================================================
 
     window._latestSummary =
       data.summary;
@@ -1244,10 +2067,12 @@ async function fetchIPData() {
       err
     );
 
+
     alert(
       "❌ Error retrieving data:\n" +
       err.message
     );
+
 
   } finally {
 
@@ -1260,9 +2085,9 @@ async function fetchIPData() {
 }
 
 
-// =========================
-// Copy summary to clipboard
-// =========================
+// ============================================================
+// COPY SUMMARY
+// ============================================================
 
 function copyToClipboard(
   elementId,
@@ -1285,6 +2110,7 @@ function copyToClipboard(
             btnId
           );
 
+
         const original =
           btn.innerHTML;
 
@@ -1306,9 +2132,9 @@ function copyToClipboard(
 }
 
 
-// =========================
-// Copy table to clipboard
-// =========================
+// ============================================================
+// COPY TABLE
+// ============================================================
 
 function copyTableToClipboard(
   btnId
@@ -1346,6 +2172,7 @@ function copyTableToClipboard(
                   let text =
                     cell.innerText.trim();
 
+
                   if (
                     i === 3
                   ) {
@@ -1354,9 +2181,11 @@ function copyTableToClipboard(
                       `"${text}"`;
                   }
 
+
                   return text;
                 }
               );
+
 
           return cells.join(
             "\t"
@@ -1382,6 +2211,7 @@ function copyTableToClipboard(
             btnId
           );
 
+
         const original =
           btn.innerHTML;
 
@@ -1403,18 +2233,15 @@ function copyTableToClipboard(
 }
 
 
-// =========================
-// Download Excel file
-// =========================
+// ============================================================
+// DOWNLOAD EXCEL
+// ============================================================
 
 function downloadExcel() {
-
-  //const clientName = document.getElementById("clientName").value.trim();
 
   fetch(
     "/download_excel",
     {
-
       method: "POST",
 
       headers: {
@@ -1434,9 +2261,8 @@ function downloadExcel() {
 
         column_label:
           window._columnLabel ||
-          "IP",
+          "IP"
 
-        //client_name: clientName || "N/A"
       })
     }
   )
@@ -1454,24 +2280,31 @@ function downloadExcel() {
           blob
         );
 
+
       const a =
         document.createElement(
           "a"
         );
 
+
       a.href =
         url;
 
+
       a.download =
         "IP_Info.xlsx";
+
 
       document.body.appendChild(
         a
       );
 
+
       a.click();
 
+
       a.remove();
+
 
       window.URL.revokeObjectURL(
         url
@@ -1487,9 +2320,11 @@ function downloadExcel() {
       btn.textContent =
         "Downloaded";
 
+
       btn.classList.add(
         "downloaded"
       );
+
 
       btn.disabled =
         true;
@@ -1501,9 +2336,11 @@ function downloadExcel() {
           btn.innerHTML =
             '<i class="ph ph-download-simple"></i> Export to Excel';
 
+
           btn.classList.remove(
             "downloaded"
           );
+
 
           btn.disabled =
             false;
@@ -1511,6 +2348,7 @@ function downloadExcel() {
         },
         5000
       );
+
     }
   )
 
@@ -1522,17 +2360,19 @@ function downloadExcel() {
         error
       );
 
+
       alert(
         "Download failed. Please try again."
       );
+
     }
   );
 }
 
 
-// =========================
-// Reset tool
-// =========================
+// ============================================================
+// RESET TOOL
+// ============================================================
 
 function resetTool() {
 
@@ -1592,12 +2432,14 @@ function resetTool() {
 
   document.getElementById(
     "summary"
-  ).innerHTML = "";
+  ).innerHTML =
+    "";
 
 
   document.getElementById(
     "tableBody"
-  ).innerHTML = "";
+  ).innerHTML =
+    "";
 
 
   document.getElementById(
@@ -1614,9 +2456,9 @@ function resetTool() {
 }
 
 
-// =========================
-// Theme toggle
-// =========================
+// ============================================================
+// THEME TOGGLE
+// ============================================================
 
 const toggleThemeBtn =
   document.getElementById(
@@ -1627,6 +2469,10 @@ const toggleThemeBtn =
 window.addEventListener(
   "DOMContentLoaded",
   () => {
+
+    // API key visual improvements
+    styleApiKeyInputs();
+
 
     const savedTheme =
       localStorage.getItem(
@@ -1642,8 +2488,12 @@ window.addEventListener(
         "light-mode"
       );
 
-      toggleThemeBtn.innerHTML =
-        '<i class="ph ph-moon"></i>';
+
+      if (toggleThemeBtn) {
+
+        toggleThemeBtn.innerHTML =
+          '<i class="ph ph-moon"></i>';
+      }
 
     } else {
 
@@ -1651,38 +2501,47 @@ window.addEventListener(
         "light-mode"
       );
 
-      toggleThemeBtn.innerHTML =
-        '<i class="ph ph-sun"></i>';
+
+      if (toggleThemeBtn) {
+
+        toggleThemeBtn.innerHTML =
+          '<i class="ph ph-sun"></i>';
+      }
     }
   }
 );
 
 
-toggleThemeBtn.addEventListener(
-  "click",
-  () => {
+if (toggleThemeBtn) {
 
-    document.body.classList.toggle(
-      "light-mode"
-    );
+  toggleThemeBtn.addEventListener(
+    "click",
+    () => {
 
-    const isLight =
-      document.body.classList.contains(
+      document.body.classList.toggle(
         "light-mode"
       );
 
 
-    toggleThemeBtn.innerHTML =
-      isLight
-        ? '<i class="ph ph-moon"></i>'
-        : '<i class="ph ph-sun"></i>';
+      const isLight =
+        document.body.classList.contains(
+          "light-mode"
+        );
 
 
-    localStorage.setItem(
-      "theme",
-      isLight
-        ? "light"
-        : "dark"
-    );
-  }
-);
+      toggleThemeBtn.innerHTML =
+        isLight
+          ? '<i class="ph ph-moon"></i>'
+          : '<i class="ph ph-sun"></i>';
+
+
+      localStorage.setItem(
+        "theme",
+        isLight
+          ? "light"
+          : "dark"
+      );
+
+    }
+  );
+}
