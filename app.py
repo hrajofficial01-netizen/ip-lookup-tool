@@ -44,6 +44,8 @@ ABUSE_MAX = 6
 
 RATE_LIMIT_MAX_ATTEMPTS = 2
 
+KEY_COOLDOWN_SECONDS = 60
+
 
 # ============================================================
 # SEMAPHORES
@@ -67,6 +69,14 @@ services_lock = Lock()
 country_cache_lock = Lock()
 
 result_cache_lock = Lock()
+
+# ============================================================
+# KEY HEALTH LOCKS
+# ============================================================
+
+vt_key_state_lock = Lock()
+apivoid_key_state_lock = Lock()
+abuse_key_state_lock = Lock()
 
 
 # ============================================================
@@ -95,6 +105,39 @@ ABUSEIPDB_KEYS = [
 vt_index = 0
 apivoid_index = 0
 abuse_index = 0
+
+
+# ============================================================
+# KEY HEALTH STATE
+# ============================================================
+#
+# 401 / 403:
+#
+#     Key is considered invalid / unauthorized and is disabled
+#     for future requests during the lifetime of the process.
+#
+# 429:
+#
+#     Key is temporarily placed on cooldown.
+#
+# IMPORTANT:
+#
+# There is NO waiting for a key to become free.
+#
+# Different IOCs can use the same key concurrently.
+#
+# The only restriction is that the same key is not reused
+# for the same IOC during the retry cycle.
+#
+# ============================================================
+
+vt_key_disabled = set()
+apivoid_key_disabled = set()
+abuse_key_disabled = set()
+
+vt_key_cooldown = {}
+apivoid_key_cooldown = {}
+abuse_key_cooldown = {}
 
 
 # ============================================================
@@ -436,22 +479,180 @@ def get_cached_system_result(
 
 
 # ============================================================
-# KEY ROTATION
+# KEY HEALTH MANAGEMENT
 # ============================================================
 
-def rotate_key(keys, service):
+def _key_state(service):
+
+    if service == "vt":
+
+        return (
+            vt_key_state_lock,
+            vt_key_disabled,
+            vt_key_cooldown
+        )
+
+    if service == "apivoid":
+
+        return (
+            apivoid_key_state_lock,
+            apivoid_key_disabled,
+            apivoid_key_cooldown
+        )
+
+    return (
+        abuse_key_state_lock,
+        abuse_key_disabled,
+        abuse_key_cooldown
+    )
+
+
+def mark_key_bad(
+    service,
+    key,
+    status_code
+):
+
+    if not key:
+        return
+
+    lock, disabled, cooldown = _key_state(
+        service
+    )
+
+    with lock:
+
+        # ====================================================
+        # AUTHENTICATION / AUTHORIZATION FAILURE
+        # ====================================================
+        #
+        # These keys should not repeatedly consume requests.
+        #
+        # VT:
+        #     401 / 403
+        #
+        # APIVoid:
+        #     401 / 403
+        #
+        # AbuseIPDB:
+        #     401 / 403
+        #
+        # ====================================================
+
+        if status_code in (
+            401,
+            403
+        ):
+
+            disabled.add(
+                key
+            )
+
+            cooldown.pop(
+                key,
+                None
+            )
+
+        # ====================================================
+        # RATE LIMIT
+        # ====================================================
+        #
+        # Do not permanently disable a 429 key.
+        #
+        # Temporarily skip it so another available key
+        # can process the next IOC.
+        #
+        # ====================================================
+
+        elif status_code == 429:
+
+            cooldown[key] = (
+                time.monotonic()
+                + KEY_COOLDOWN_SECONDS
+            )
+
+
+def _key_usable(
+    service,
+    key
+):
+
+    lock, disabled, cooldown = _key_state(
+        service
+    )
+
+    with lock:
+
+        # Permanently disabled during this process.
+        if key in disabled:
+
+            return False
+
+        cooldown_until = cooldown.get(
+            key
+        )
+
+        if cooldown_until is not None:
+
+            # Still rate limited.
+            if time.monotonic() < cooldown_until:
+
+                return False
+
+            # Cooldown has expired.
+            cooldown.pop(
+                key,
+                None
+            )
+
+        return True
+
+
+def get_next_key(
+    keys,
+    service,
+    attempted_keys=None
+):
+
+    """
+    Select the next currently usable key.
+
+    IMPORTANT:
+
+    This function NEVER waits for a key.
+
+    A key is skipped when:
+
+        1. It has already been attempted for
+           this IOC.
+
+        2. It has been disabled because of
+           401 / 403.
+
+        3. It is temporarily on 429 cooldown.
+
+    Keys remain available for concurrent use
+    by different IOCs.
+    """
 
     global vt_index
     global apivoid_index
     global abuse_index
 
     if not keys:
+
         return None
 
     lock_map = {
-        "vt": vt_lock,
-        "apivoid": apivoid_lock,
-        "abuse": abuse_lock
+
+        "vt":
+            vt_lock,
+
+        "apivoid":
+            apivoid_lock,
+
+        "abuse":
+            abuse_lock
     }
 
     with lock_map[service]:
@@ -460,37 +661,71 @@ def rotate_key(keys, service):
 
             current_index = vt_index
 
-            key = keys[current_index]
-
-            vt_index = (
-                current_index + 1
-            ) % len(keys)
-
-            return key
-
-        if service == "apivoid":
+        elif service == "apivoid":
 
             current_index = apivoid_index
 
-            key = keys[current_index]
-
-            apivoid_index = (
-                current_index + 1
-            ) % len(keys)
-
-            return key
-
-        if service == "abuse":
+        else:
 
             current_index = abuse_index
 
-            key = keys[current_index]
+        for offset in range(
+            len(keys)
+        ):
 
-            abuse_index = (
-                current_index + 1
+            index = (
+                current_index
+                + offset
             ) % len(keys)
 
+            key = keys[index]
+
+            # =================================================
+            # DO NOT REPEAT SAME KEY FOR SAME IOC
+            # =================================================
+
+            if (
+                attempted_keys
+                and
+                key in attempted_keys
+            ):
+
+                continue
+
+            # =================================================
+            # SKIP UNHEALTHY KEY
+            # =================================================
+
+            if not _key_usable(
+                service,
+                key
+            ):
+
+                continue
+
+            # =================================================
+            # ADVANCE ROUND-ROBIN POINTER
+            # =================================================
+
+            next_index = (
+                index + 1
+            ) % len(keys)
+
+            if service == "vt":
+
+                vt_index = next_index
+
+            elif service == "apivoid":
+
+                apivoid_index = next_index
+
+            else:
+
+                abuse_index = next_index
+
             return key
+
+    return None
 
 
 # ============================================================
@@ -580,25 +815,28 @@ def vt_lookup(
             return cached
 
         if not VT_API_KEYS:
+
             return None
 
-        attempted = 0
+        attempted_keys = set()
 
-        max_attempts = len(
-            VT_API_KEYS
-        )
+        while len(
+            attempted_keys
+        ) < len(VT_API_KEYS):
 
-        while attempted < max_attempts:
-
-            key = rotate_key(
+            key = get_next_key(
                 VT_API_KEYS,
-                "vt"
+                "vt",
+                attempted_keys
             )
 
             if not key:
-                return None
 
-            attempted += 1
+                break
+
+            attempted_keys.add(
+                key
+            )
 
             result = _vt_call_with_key(
                 entry,
@@ -685,6 +923,12 @@ def _vt_call_with_key(
                     key_type
                 )
 
+            mark_key_bad(
+                "vt",
+                key,
+                429
+            )
+
             return None
 
         # ====================================================
@@ -708,6 +952,12 @@ def _vt_call_with_key(
                     r.status_code,
                     key_type
                 )
+
+            mark_key_bad(
+                "vt",
+                key,
+                r.status_code
+            )
 
             return None
 
@@ -845,6 +1095,7 @@ def apivoid_lookup(
 ):
 
     if is_hash(entry):
+
         return None
 
     with apivoid_semaphore:
@@ -865,6 +1116,7 @@ def apivoid_lookup(
             )
 
             if cached is not None:
+
                 return cached
 
             return _apivoid_call_with_key(
@@ -886,26 +1138,32 @@ def apivoid_lookup(
         )
 
         if cached is not None:
+
             return cached
 
         if not APIVOID_KEYS:
+
             return None
 
-        attempted = 0
+        attempted_keys = set()
 
-        while attempted < len(
-            APIVOID_KEYS
-        ):
+        while len(
+            attempted_keys
+        ) < len(APIVOID_KEYS):
 
-            key = rotate_key(
+            key = get_next_key(
                 APIVOID_KEYS,
-                "apivoid"
+                "apivoid",
+                attempted_keys
             )
 
             if not key:
-                return None
 
-            attempted += 1
+                break
+
+            attempted_keys.add(
+                key
+            )
 
             result = _apivoid_call_with_key(
                 entry,
@@ -916,6 +1174,7 @@ def apivoid_lookup(
             )
 
             if result is not None:
+
                 return result
 
         return None
@@ -984,6 +1243,12 @@ def _apivoid_call_with_key(
                     key_type
                 )
 
+            mark_key_bad(
+                "apivoid",
+                key,
+                429
+            )
+
             return None
 
         if r.status_code != 200:
@@ -1003,6 +1268,12 @@ def _apivoid_call_with_key(
                     r.status_code,
                     key_type
                 )
+
+            mark_key_bad(
+                "apivoid",
+                key,
+                r.status_code
+            )
 
             return None
 
@@ -1117,6 +1388,7 @@ def abuse_lookup(
 ):
 
     if not is_ip(ip):
+
         return None
 
     with abuse_semaphore:
@@ -1137,6 +1409,7 @@ def abuse_lookup(
             )
 
             if cached is not None:
+
                 return cached
 
             return _abuse_call_with_key(
@@ -1158,26 +1431,32 @@ def abuse_lookup(
         )
 
         if cached is not None:
+
             return cached
 
         if not ABUSEIPDB_KEYS:
+
             return None
 
-        attempted = 0
+        attempted_keys = set()
 
-        while attempted < len(
-            ABUSEIPDB_KEYS
-        ):
+        while len(
+            attempted_keys
+        ) < len(ABUSEIPDB_KEYS):
 
-            key = rotate_key(
+            key = get_next_key(
                 ABUSEIPDB_KEYS,
-                "abuse"
+                "abuse",
+                attempted_keys
             )
 
             if not key:
-                return None
 
-            attempted += 1
+                break
+
+            attempted_keys.add(
+                key
+            )
 
             result = _abuse_call_with_key(
                 ip,
@@ -1188,6 +1467,7 @@ def abuse_lookup(
             )
 
             if result is not None:
+
                 return result
 
         return None
@@ -1238,6 +1518,12 @@ def _abuse_call_with_key(
                     key_type
                 )
 
+            mark_key_bad(
+                "abuse",
+                key,
+                429
+            )
+
             return None
 
         if r.status_code != 200:
@@ -1258,6 +1544,12 @@ def _abuse_call_with_key(
                     key_type
                 )
 
+            mark_key_bad(
+                "abuse",
+                key,
+                r.status_code
+            )
+
             return None
 
         result_data = r.json().get(
@@ -1265,6 +1557,7 @@ def _abuse_call_with_key(
         )
 
         if not result_data:
+
             return None
 
         country_name = (
@@ -1403,6 +1696,7 @@ def build_summary(
                 ValueError,
                 TypeError
             ):
+
                 pass
 
         if (
@@ -1498,13 +1792,15 @@ def index():
         "index.html"
     )
 
+
 @app.route("/about")
 def about():
 
     return render_template(
         "about.html"
     )
-    
+
+
 @app.route("/ping")
 def ping():
 
@@ -1586,11 +1882,13 @@ def get_ip_info():
             entry,
             str
         ):
+
             continue
 
         entry = entry.strip()
 
         if not entry:
+
             continue
 
         if entry not in seen_entries:
@@ -1604,6 +1902,7 @@ def get_ip_info():
             )
 
         if len(entries) >= IOC_MAX:
+
             break
 
     raw_table = [
@@ -2162,6 +2461,7 @@ def get_ip_info():
         )
 
         if not user_key:
+
             continue
 
         if (
